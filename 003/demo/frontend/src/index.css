@@ -1,0 +1,159 @@
+/* 全局样式重置 */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #f8f9fa;
+  min-height: 100vh;
+  overflow-x: hidden;
+  color: #3c4043;
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200px 0;
+  }
+  100% {
+    background-position: calc(200px + 100%) 0;
+  }
+}
+
+/* Gemini风格效果 */
+.glass-effect {
+  background: #f8f9fa;
+  border: 1px solid #e8eaed;
+  border-radius: 24px;
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.1);
+}
+
+/* 渐变文字 */
+.gradient-text {
+  background: linear-gradient(45deg, #1a73e8, #4285f4, #34a853);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradient-shift 3s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* 发光效果 */
+.glow-effect {
+  box-shadow: 0 1px 3px rgba(60, 64, 67, 0.1);
+  transition: box-shadow 0.2s ease;
+}
+
+.glow-effect:hover {
+  box-shadow: 0 1px 6px rgba(32, 33, 36, 0.15);
+}
+
+/* 消息气泡动画 */
+.message-bubble {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.user-message {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.assistant-message {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+/* 打字机效果 */
+.typing-indicator {
+  display: inline-block;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* 流式文本效果 */
+.streaming-text {
+  position: relative;
+  overflow: hidden;
+}
+
+.streaming-text::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 2px;
+  height: 100%;
+  background: #1a73e8;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .glass-effect {
+    border-radius: 12px;
+  }
+}

@@ -1,0 +1,27 @@
+.streaming-text-container {
+  position: relative;
+  width: 100%;
+}
+
+.streaming-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.typing-cursor {
+  display: inline-block;
+  background-color: #667eea;
+  width: 2px;
+  margin-left: 2px;
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}

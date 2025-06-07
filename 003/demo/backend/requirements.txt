@@ -1,0 +1,7 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-dotenv==1.0.0
+autogen-agentchat==0.5.7
+autogen-ext[openai]==0.5.7
+pydantic==2.5.0
+python-multipart==0.0.6
