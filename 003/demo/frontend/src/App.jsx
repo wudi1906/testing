@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { Layout, Typography, Button, Space, message, Input, Avatar } from 'antd'
+import { Layout, Typography, Button, Space, message, Input, Avatar, Upload, Tag } from 'antd'
 import {
   SendOutlined,
   MenuOutlined,
@@ -8,11 +8,14 @@ import {
   ShareAltOutlined,
   EditOutlined,
   RobotOutlined,
-  UserOutlined
+  UserOutlined,
+  PaperClipOutlined,
+  DeleteOutlined
 } from '@ant-design/icons'
 import { motion, AnimatePresence } from 'framer-motion'
 import StreamingText from './components/StreamingText'
 import MessageRenderer from './components/MessageRenderer'
+import FeedbackModal from './components/FeedbackModal'
 import './App.css'
 
 const { Header, Content, Sider } = Layout
@@ -25,6 +28,10 @@ function App() {
   const [isStreaming, setIsStreaming] = useState(false)
   const [sessionId] = useState(() => `session_${Date.now()}`)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [feedbackModalVisible, setFeedbackModalVisible] = useState(false)
+  const [userProxyMessage, setUserProxyMessage] = useState('')
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const [isUploading, setIsUploading] = useState(false)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -36,6 +43,103 @@ function App() {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // 加载会话文件
+  const loadSessionFiles = async () => {
+    try {
+      const response = await fetch(`/api/files/${sessionId}`)
+      if (response.ok) {
+        const result = await response.json()
+        setUploadedFiles(result.files || [])
+      }
+    } catch (error) {
+      console.error('加载文件列表失败:', error)
+    }
+  }
+
+  // 组件加载时获取会话文件
+  useEffect(() => {
+    loadSessionFiles()
+  }, [sessionId])
+
+  // 文件上传处理
+  const handleFileUpload = async (file) => {
+    setIsUploading(true)
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('session_id', sessionId)
+
+    try {
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        throw new Error('文件上传失败')
+      }
+
+      const result = await response.json()
+
+      // 添加到文件列表
+      const newFile = {
+        file_id: result.data.file_id,
+        filename: result.data.filename,
+        file_size: result.data.file_size,
+        file_type: result.data.file_type,
+        upload_time: result.data.upload_time,
+        statistics: result.data.statistics
+      }
+
+      setUploadedFiles(prev => [...prev, newFile])
+      message.success(`文件上传成功: ${result.data.filename}`)
+    } catch (error) {
+      console.error('文件上传失败:', error)
+      message.error('文件上传失败，请重试')
+    } finally {
+      setIsUploading(false)
+    }
+
+    return false // 阻止默认上传行为
+  }
+
+  // 删除已上传的文件
+  const removeUploadedFile = async (fileId) => {
+    try {
+      const response = await fetch(`/api/files/${fileId}?session_id=${sessionId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('删除文件失败')
+      }
+
+      setUploadedFiles(prev => prev.filter(file => file.file_id !== fileId))
+      message.success('文件已删除')
+    } catch (error) {
+      console.error('删除文件失败:', error)
+      message.error('删除文件失败，请重试')
+    }
+  }
+
+  // 清除所有文件
+  const clearAllFiles = async () => {
+    try {
+      const response = await fetch(`/api/files/session/${sessionId}`, {
+        method: 'DELETE'
+      })
+
+      if (!response.ok) {
+        throw new Error('清除文件失败')
+      }
+
+      setUploadedFiles([])
+      message.success('所有文件已清除')
+    } catch (error) {
+      console.error('清除文件失败:', error)
+      message.error('清除文件失败，请重试')
+    }
+  }
 
   // 发送消息
   const sendMessage = async () => {
@@ -71,7 +175,8 @@ function App() {
         },
         body: JSON.stringify({
           message: userMessage.content,
-          session_id: sessionId
+          session_id: sessionId,
+          use_uploaded_files: uploadedFiles.length > 0
         })
       })
 
@@ -93,23 +198,40 @@ function App() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
-              
+
               if (data.type === 'chunk' && data.content) {
-                setMessages(prev => prev.map(msg => 
-                  msg.id === assistantMessage.id 
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
                     ? { ...msg, content: msg.content + data.content }
                     : msg
                 ))
+              } else if (data.type === 'user_proxy_request') {
+                // user_proxy智能体请求用户反馈
+                setUserProxyMessage(data.content)
+                setFeedbackModalVisible(true)
+                // 暂停流式输出，等待用户反馈
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
+                    ? { ...msg, streaming: false, content: msg.content + '\n\n[等待用户反馈...]' }
+                    : msg
+                ))
+              } else if (data.type === 'message') {
+                // 其他智能体的完整消息
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
+                    ? { ...msg, content: msg.content + '\n\n' + data.content }
+                    : msg
+                ))
               } else if (data.type === 'end') {
-                setMessages(prev => prev.map(msg => 
-                  msg.id === assistantMessage.id 
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
                     ? { ...msg, streaming: false }
                     : msg
                 ))
               } else if (data.type === 'error') {
                 message.error(data.content)
-                setMessages(prev => prev.map(msg => 
-                  msg.id === assistantMessage.id 
+                setMessages(prev => prev.map(msg =>
+                  msg.id === assistantMessage.id
                     ? { ...msg, content: data.content, streaming: false }
                     : msg
                 ))
@@ -140,10 +262,45 @@ function App() {
         method: 'DELETE'
       })
       setMessages([])
+      // 同时清除文件
+      await clearAllFiles()
       message.success('对话已清除')
     } catch (error) {
       console.error('清除对话失败:', error)
       message.error('清除对话失败')
+    }
+  }
+
+  // 处理反馈提交
+  const handleFeedbackSubmit = async (feedbackData) => {
+    try {
+      const response = await fetch(`/api/feedback/${sessionId}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(feedbackData)
+      })
+
+      if (!response.ok) {
+        throw new Error('发送反馈失败')
+      }
+
+      // 更新消息显示反馈已发送
+      setMessages(prev => prev.map(msg => {
+        if (msg.streaming === false && msg.content.includes('[等待用户反馈...]')) {
+          const feedbackText = feedbackData.action === 'agree' ? '已同意' : feedbackData.content
+          return {
+            ...msg,
+            content: msg.content.replace('[等待用户反馈...]', `[用户反馈: ${feedbackText}]`)
+          }
+        }
+        return msg
+      }))
+
+    } catch (error) {
+      console.error('发送反馈失败:', error)
+      throw error
     }
   }
 
@@ -262,17 +419,65 @@ function App() {
           </div>
 
           <div className="input-container">
+            {/* 文件上传状态显示 */}
+            {uploadedFiles.length > 0 && (
+              <div className="uploaded-files-info">
+                <div className="files-header">
+                  <span>已上传文件 ({uploadedFiles.length})</span>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<DeleteOutlined />}
+                    onClick={clearAllFiles}
+                    title="清除所有文件"
+                  />
+                </div>
+                <div className="files-list">
+                  {uploadedFiles.map(file => (
+                    <Tag
+                      key={file.file_id}
+                      closable
+                      onClose={() => removeUploadedFile(file.file_id)}
+                      icon={<PaperClipOutlined />}
+                      color="blue"
+                      title={`${file.filename} - ${file.statistics.total_words} 词`}
+                    >
+                      {file.filename} ({(file.file_size / 1024).toFixed(1)}KB)
+                    </Tag>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="input-wrapper glass-effect">
+              <div className="input-actions">
+                <Upload
+                  beforeUpload={handleFileUpload}
+                  showUploadList={false}
+                  accept=".pdf,.docx,.doc,.txt,.xlsx,.xls"
+                  disabled={isStreaming || isUploading}
+                >
+                  <Button
+                    type="text"
+                    icon={<PaperClipOutlined />}
+                    loading={isUploading}
+                    className="upload-button"
+                    title="上传文档"
+                  />
+                </Upload>
+              </div>
+
               <TextArea
                 ref={inputRef}
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyPress={handleKeyPress}
-                placeholder="输入您的问题..."
+                placeholder={uploadedFiles.length > 0 ? "基于上传的文档提问..." : "输入您的问题..."}
                 className="chat-input"
                 disabled={isStreaming}
                 autoSize={{ minRows: 1, maxRows: 4 }}
               />
+
               <Button
                 type="primary"
                 icon={<SendOutlined />}
@@ -288,6 +493,15 @@ function App() {
         </div>
       </Content>
       </Layout>
+
+      {/* 反馈模态框 */}
+      <FeedbackModal
+        visible={feedbackModalVisible}
+        onClose={() => setFeedbackModalVisible(false)}
+        onSubmit={handleFeedbackSubmit}
+        userProxyMessage={userProxyMessage}
+        sessionId={sessionId}
+      />
     </Layout>
   )
 }

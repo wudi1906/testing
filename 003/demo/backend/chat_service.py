@@ -1,11 +1,12 @@
 import asyncio
 import os
 import sys
-from typing import AsyncGenerator, Dict, List
-from autogen_agentchat.agents import AssistantAgent
-from autogen_agentchat.conditions import SourceMatchTermination
-from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage
+from typing import AsyncGenerator, Dict, List, Any
+from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_agentchat.conditions import SourceMatchTermination, TextMentionTermination
+from autogen_agentchat.messages import ModelClientStreamingChunkEvent, TextMessage, UserInputRequestedEvent
 from autogen_agentchat.teams import RoundRobinGroupChat
+from autogen_core import CancellationToken
 from autogen_core.models import ModelFamily
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from dotenv import load_dotenv
@@ -17,6 +18,15 @@ class ChatService:
     def __init__(self):
         self.sessions: Dict[str, AssistantAgent | RoundRobinGroupChat] = {}
         self.model_client = self._create_model_client()
+        self.feedback_queue = asyncio.Queue()
+
+    async def put_feedback(self, message: Dict[str, Any]):
+        await self.feedback_queue.put(message)
+
+    async def user_input_callback(self, prompt: str, cancellation_token: CancellationToken | None) -> str:
+        feedback = await self.feedback_queue.get()
+        # 返回用户反馈内容
+        return feedback.get("content", "")
 
     def _create_team(self, session_id: str):
         if session_id not in self.sessions:
@@ -139,13 +149,18 @@ class ChatService:
                 model_client_stream=True,
             )
 
-            # Define a termination condition that stops the task if the critic approves.
-            source_match_termination = SourceMatchTermination(["critic"])
+            user_proxy = UserProxyAgent(
+                name="user_proxy",
+                input_func=self.user_input_callback
+            )
 
-            # text_termination = TextMentionTermination("APPROVE")
+            # Define a termination condition that stops the task if the critic approves.
+            # source_match_termination = SourceMatchTermination(["critic"])
+
+            text_termination = TextMentionTermination("APPROVE")
 
             # Create a team with the primary and critic agents.
-            team = RoundRobinGroupChat([primary_agent, critic_agent], termination_condition=source_match_termination)
+            team = RoundRobinGroupChat([primary_agent, critic_agent, user_proxy], termination_condition=text_termination)
             self.sessions[session_id] = team
         return self.sessions[session_id]
 
@@ -176,23 +191,35 @@ class ChatService:
             )
         return self.sessions[session_id]
     
-    async def chat_stream(self, message: str, session_id: str = "default") -> AsyncGenerator[str, None]:
+    async def chat_stream(self, message: str, session_id: str = "default") -> AsyncGenerator[Dict[str, Any], None]:
         """流式聊天"""
         # agent = self._get_or_create_agent(session_id)
-        agent = self._create_team(session_id)
+        team = self._create_team(session_id)
         try:
             # 使用 run_stream 方法获取流式响应
-            stream = agent.run_stream(task=message)
+            stream = team.run_stream(task=message)
             async for item in stream:
                 if isinstance(item, ModelClientStreamingChunkEvent):
                     # 流式输出的文本块
-                    yield item.content
+                    yield {
+                        "type": "chunk",
+                        "content": item.content,
+                        "source": getattr(item, 'source', 'unknown')
+                    }
+                elif isinstance(item, UserInputRequestedEvent):
+                    yield {
+                        "type": "user_proxy_request",
+                        "content": item.content,
+                        "source": item.source
+                    }
 
-                # elif isinstance(item, TextMessage) and item.source == "assistant":
-                #     # 如果是最终的完整消息，可以选择不输出或者输出换行
-                #     pass
+
         except Exception as e:
-            yield f"\n\n抱歉，处理您的请求时出现了错误：{str(e)}"
+            yield {
+                "type": "error",
+                "content": f"\n\n抱歉，处理您的请求时出现了错误：{str(e)}",
+                "source": "system"
+            }
     
     async def chat(self, message: str, session_id: str = "default") -> str:
         """非流式聊天"""

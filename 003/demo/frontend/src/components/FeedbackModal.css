@@ -1,0 +1,158 @@
+.feedback-overlay {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 90%;
+  max-width: 600px;
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateX(-50%) translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+.feedback-card {
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  border: 1px solid #e8e8e8;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+}
+
+.feedback-card .ant-card-head {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+}
+
+.feedback-card .ant-card-head-title {
+  color: white;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.feedback-content {
+  padding: 0;
+}
+
+.user-proxy-message {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.message-text {
+  color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.feedback-input-section {
+  margin-bottom: 20px;
+}
+
+.feedback-textarea {
+  border-radius: 8px;
+  border: 1px solid #d9d9d9;
+  transition: all 0.3s ease;
+  font-size: 14px;
+}
+
+.feedback-textarea:focus {
+  border-color: #667eea;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+}
+
+.feedback-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 16px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.agree-button {
+  background: linear-gradient(135deg, #52c41a 0%, #389e0d 100%);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  min-width: 140px;
+  height: 44px;
+  font-size: 15px;
+}
+
+.agree-button:hover {
+  background: linear-gradient(135deg, #389e0d 0%, #237804 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(82, 196, 26, 0.4);
+}
+
+.send-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  min-width: 140px;
+  height: 44px;
+  font-size: 15px;
+}
+
+.send-button:hover {
+  background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.send-button:disabled {
+  background: #d9d9d9 !important;
+  color: #999 !important;
+  transform: none !important;
+  box-shadow: none !important;
+  cursor: not-allowed;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .feedback-overlay {
+    width: 95%;
+    bottom: 10px;
+  }
+
+  .feedback-actions .ant-space {
+    width: 100%;
+  }
+
+  .feedback-actions .ant-space .ant-space-item {
+    flex: 1;
+  }
+
+  .agree-button,
+  .send-button {
+    width: 100%;
+    min-width: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .feedback-actions .ant-space {
+    flex-direction: column;
+    gap: 12px !important;
+  }
+
+  .feedback-actions .ant-space .ant-space-item {
+    width: 100%;
+  }
+}

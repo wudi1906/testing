@@ -263,6 +263,101 @@
   max-width: 100%;
 }
 
+/* 文件上传相关样式 */
+.uploaded-files-info {
+  margin-bottom: 12px;
+  padding: 8px 0;
+}
+
+.files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.files-list .ant-tag {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.3);
+  color: #1890ff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-list .ant-tag:hover {
+  background: rgba(24, 144, 255, 0.15);
+  border-color: rgba(24, 144, 255, 0.4);
+}
+
+/* 兼容旧样式 */
+.uploaded-file-info {
+  margin-bottom: 12px;
+  padding: 8px 0;
+}
+
+.uploaded-file-info .ant-tag {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.input-actions {
+  display: flex;
+  align-items: center;
+}
+
+.upload-button {
+  color: #5f6368 !important;
+  border: none !important;
+  background: transparent !important;
+  padding: 4px !important;
+  width: 32px !important;
+  height: 32px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease;
+}
+
+.upload-button:hover:not(:disabled) {
+  background: #e8f0fe !important;
+  color: #1a73e8 !important;
+}
+
+.upload-button:disabled {
+  color: #9aa0a6 !important;
+  cursor: not-allowed;
+}
+
+.upload-button .anticon {
+  font-size: 16px;
+}
+
 .input-wrapper:hover {
   border-color: #dadce0;
   box-shadow: 0 1px 6px rgba(32, 33, 36, 0.1);
@@ -356,6 +451,22 @@
   .input-wrapper {
     padding: 10px 14px;
     gap: 10px;
+  }
+
+  .uploaded-file-info .ant-tag,
+  .files-list .ant-tag {
+    font-size: 12px;
+    padding: 4px 8px;
+    max-width: 150px;
+  }
+
+  .files-header {
+    font-size: 11px;
+  }
+
+  .upload-button {
+    width: 28px !important;
+    height: 28px !important;
   }
 
   .header-title {
