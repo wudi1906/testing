@@ -1,0 +1,505 @@
+.streaming-display {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.streaming-display .ant-card-body {
+  padding: 16px;
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 重要：允许flex子元素收缩 */
+}
+
+.streaming-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 8px;
+  min-height: 0; /* 重要：允许滚动 */
+  max-height: 100%; /* 确保不超出容器 */
+}
+
+.messages-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.message-item {
+  margin-bottom: 8px;
+}
+
+.message-header {
+  margin-bottom: 4px;
+}
+
+.message-content {
+  color: #666;
+  line-height: 1.5;
+}
+
+/* Markdown内容样式 */
+.markdown-content {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #333;
+}
+
+.markdown-content h1 {
+  font-size: 1.5em;
+  margin: 0.8em 0 0.4em 0;
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.markdown-content h2 {
+  font-size: 1.3em;
+  margin: 0.7em 0 0.3em 0;
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.markdown-content h3 {
+  font-size: 1.1em;
+  margin: 0.6em 0 0.2em 0;
+  color: #1890ff;
+  font-weight: 600;
+}
+
+.markdown-content strong {
+  color: #1890ff;
+  font-weight: bold;
+}
+
+.markdown-content em {
+  color: #52c41a;
+  font-style: italic;
+}
+
+.markdown-content pre {
+  background: #f6f8fa;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+  border: 1px solid #e1e4e8;
+}
+
+.markdown-content code {
+  background: #f6f8fa;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 13px;
+  color: #d73a49;
+}
+
+.markdown-content pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: #333;
+}
+
+.markdown-content ul {
+  margin: 0.5em 0;
+  padding-left: 1.5em;
+}
+
+.markdown-content li {
+  margin: 0.2em 0;
+}
+
+.markdown-content br {
+  line-height: 1.6;
+}
+
+/* 正常内容样式 */
+.normal-content {
+  margin: 4px 0;
+}
+
+/* ThoughtChain组件样式调整 */
+.ant-thought-chain {
+  margin: 8px 0;
+}
+
+.ant-thought-chain .ant-thought-chain-item {
+  margin-bottom: 8px;
+}
+
+.ant-thought-chain .ant-thought-chain-item-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #666;
+}
+
+.ant-timeline-item-content {
+  min-height: auto;
+}
+
+.ant-timeline-item-tail {
+  border-left: 2px solid #e8e8e8;
+}
+
+.ant-timeline-item-head {
+  background-color: #fff;
+  border: 2px solid #e8e8e8;
+}
+
+.ant-timeline-item-head-blue {
+  border-color: #1890ff;
+}
+
+.ant-timeline-item-head-green {
+  border-color: #52c41a;
+}
+
+.ant-timeline-item-head-red {
+  border-color: #ff4d4f;
+}
+
+/* 动画效果 */
+.message-item {
+  transition: all 0.3s ease;
+}
+
+.message-item:hover {
+  background-color: #f9f9f9;
+  border-radius: 4px;
+  padding: 4px;
+  margin: -4px;
+}
+
+/* 进度条样式 */
+.ant-progress-line {
+  margin-bottom: 16px;
+}
+
+.ant-progress-text {
+  font-size: 12px;
+}
+
+/* 空状态样式 */
+.ant-empty {
+  padding: 40px 20px;
+}
+
+.ant-empty-description {
+  color: #999;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .streaming-display {
+    min-height: 400px;
+  }
+  
+  .messages-container {
+    max-height: 300px;
+  }
+  
+  .message-header .ant-space {
+    flex-wrap: wrap;
+  }
+  
+  .message-header .ant-tag {
+    margin-top: 2px;
+  }
+}
+
+/* 加载状态 */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+}
+
+.loading-container .ant-spin {
+  margin-bottom: 16px;
+}
+
+/* 连接状态指示器 */
+.connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.connection-status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: currentColor;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* 消息类型样式 */
+.message-item[data-type="error"] {
+  border-left: 3px solid #ff4d4f;
+  padding-left: 8px;
+  background-color: #fff2f0;
+}
+
+.message-item[data-type="final_result"] {
+  border-left: 3px solid #52c41a;
+  padding-left: 8px;
+  background-color: #f6ffed;
+}
+
+.message-item[data-type="message"] {
+  border-left: 3px solid #1890ff;
+  padding-left: 8px;
+  background-color: #f0f9ff;
+}
+
+/* 滚动动画 */
+.messages-container {
+  scroll-behavior: smooth;
+}
+
+/* 时间线自定义样式 */
+.ant-timeline {
+  padding-left: 0;
+}
+
+.ant-timeline-item {
+  padding-bottom: 12px;
+}
+
+.ant-timeline-item:last-child {
+  padding-bottom: 0;
+}
+
+.ant-timeline-item-content {
+  margin-left: 32px;
+  position: relative;
+  top: -6px;
+}
+
+/* 标签样式优化 */
+.ant-tag {
+  border-radius: 10px;
+  font-size: 11px;
+  padding: 0 6px;
+  line-height: 18px;
+}
+
+/* 警告框样式 */
+.ant-alert {
+  border-radius: 6px;
+}
+
+.ant-alert-small {
+  padding: 8px 12px;
+}
+
+/* 按钮样式 */
+.ant-btn-sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+/* JSON格式化显示样式 */
+.json-collapsible {
+  margin: 8px 0;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  background: #fafbfc;
+}
+
+.json-collapsible .ant-collapse-header {
+  padding: 8px 12px !important;
+  background: #f6f8fa;
+  border-radius: 6px 6px 0 0;
+  border-bottom: 1px solid #e1e4e8;
+}
+
+.json-collapsible .ant-collapse-content-box {
+  padding: 0 !important;
+}
+
+.json-content {
+  background: #f6f8fa;
+  padding: 12px;
+  border-radius: 0 0 6px 6px;
+  max-height: 300px;
+  overflow: auto;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.json-content::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.json-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.json-content::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.json-content::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 代码高亮样式 */
+.json-content pre {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.json-content code {
+  background: transparent !important;
+  color: #24292e !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+  white-space: pre-wrap !important;
+}
+
+/* JSON语法高亮 */
+.json-key {
+  color: #032f62;
+  font-weight: bold;
+}
+
+.json-string {
+  color: #032f62;
+}
+
+.json-number {
+  color: #005cc5;
+}
+
+.json-boolean {
+  color: #d73a49;
+}
+
+.json-null {
+  color: #6f42c1;
+}
+
+/* 思考链中的JSON样式优化 */
+.ant-thought-chain .json-collapsible {
+  margin: 4px 0;
+  font-size: 12px;
+}
+
+.ant-thought-chain .json-collapsible .ant-collapse-header {
+  padding: 6px 10px !important;
+  font-size: 12px;
+}
+
+.ant-thought-chain .json-content {
+  max-height: 200px;
+  font-size: 11px;
+}
+
+/* 可折叠面板样式优化 */
+.ant-collapse-ghost > .ant-collapse-item {
+  border: none;
+}
+
+.ant-collapse-ghost > .ant-collapse-item > .ant-collapse-header {
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  margin-bottom: 0;
+}
+
+.ant-collapse-ghost > .ant-collapse-item-active > .ant-collapse-header {
+  border-radius: 6px 6px 0 0;
+  border-bottom: none;
+}
+
+.ant-collapse-ghost > .ant-collapse-item > .ant-collapse-content {
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+}
+
+/* JSON数据标签样式 */
+.json-tag {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  color: white;
+  font-weight: 500;
+}
+
+/* 代码块内的JSON格式化 */
+.markdown-content .json-formatted {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 8px;
+  margin: 4px 0;
+  font-family: 'SFMono-Regular', 'Consolas', 'Liberation Mono', 'Menlo', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-x: auto;
+}
+
+/* 响应式JSON显示 */
+@media (max-width: 768px) {
+  .json-content {
+    font-size: 11px;
+    max-height: 200px;
+  }
+
+  .ant-thought-chain .json-content {
+    font-size: 10px;
+    max-height: 150px;
+  }
+
+  .json-collapsible .ant-collapse-header {
+    padding: 6px 8px !important;
+    font-size: 11px;
+  }
+}

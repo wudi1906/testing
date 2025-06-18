@@ -1,0 +1,318 @@
+.script-manager {
+  padding: 24px;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.script-manager .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.script-manager .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.script-manager .ant-table-tbody > tr:hover > td {
+  background: #f0f9ff;
+}
+
+.script-manager .ant-btn {
+  border-radius: 6px;
+}
+
+.script-manager .ant-btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
+.script-manager .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.script-manager .ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+
+.script-manager .ant-statistic {
+  text-align: center;
+}
+
+.script-manager .ant-statistic-title {
+  font-size: 14px;
+  color: #666;
+}
+
+.script-manager .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.script-manager .ant-form-inline .ant-form-item {
+  margin-right: 16px;
+  margin-bottom: 16px;
+}
+
+.script-manager .ant-modal-content {
+  border-radius: 8px;
+}
+
+.script-manager .ant-upload {
+  width: 100%;
+}
+
+.script-manager .ant-upload-list {
+  margin-top: 8px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .script-manager {
+    padding: 16px;
+  }
+  
+  .script-manager .ant-form-inline .ant-form-item {
+    margin-right: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .script-manager .ant-table {
+    font-size: 12px;
+  }
+  
+  .script-manager .ant-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}
+
+/* 动画效果 */
+.script-manager .ant-table-tbody > tr {
+  transition: all 0.3s ease;
+}
+
+.script-manager .ant-btn {
+  transition: all 0.3s ease;
+}
+
+.script-manager .ant-card {
+  transition: all 0.3s ease;
+}
+
+.script-manager .ant-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+/* 自定义滚动条 */
+.script-manager pre {
+  scrollbar-width: thin;
+  scrollbar-color: #ccc #f5f5f5;
+}
+
+.script-manager pre::-webkit-scrollbar {
+  width: 6px;
+}
+
+.script-manager pre::-webkit-scrollbar-track {
+  background: #f5f5f5;
+  border-radius: 3px;
+}
+
+.script-manager pre::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 3px;
+}
+
+.script-manager pre::-webkit-scrollbar-thumb:hover {
+  background: #999;
+}
+
+/* 单行搜索栏样式 */
+.compact-search-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.search-left-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-right-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* 脚本名称截断样式 */
+.script-name-truncate {
+  display: block;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.script-description-truncate {
+  display: block;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #666;
+  font-size: 12px;
+}
+
+/* 优化表单项间距 */
+.script-manager .ant-form-inline .ant-form-item {
+  margin-right: 12px;
+  margin-bottom: 0;
+}
+
+/* 响应式布局优化 */
+@media (max-width: 1200px) {
+  .search-left-section {
+    flex-wrap: wrap;
+  }
+
+  .search-left-section .ant-form-item {
+    margin-bottom: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  .compact-search-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-left-section {
+    justify-content: flex-start;
+    margin-bottom: 12px;
+  }
+
+  .search-right-section {
+    justify-content: flex-end;
+  }
+
+  .script-name-truncate,
+  .script-description-truncate {
+    max-width: 180px;
+  }
+}
+
+@media (max-width: 576px) {
+  .search-left-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .search-left-section .ant-input,
+  .search-left-section .ant-select {
+    width: 100% !important;
+  }
+
+  .search-right-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .search-right-section .ant-btn {
+    width: 100%;
+  }
+}
+
+/* 表格标题栏集成搜索样式 */
+.script-manager .ant-table-title {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 0;
+}
+
+/* 强制水平搜索布局 */
+.script-manager .ant-table-title > div {
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+}
+
+.script-manager .ant-table-title > div > div:first-child {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  flex: 1 !important;
+  min-width: 280px !important;
+}
+
+.script-manager .ant-table-title .ant-input,
+.script-manager .ant-table-title .ant-select,
+.script-manager .ant-table-title .ant-btn {
+  vertical-align: middle !important;
+}
+
+.script-manager .ant-table-title .ant-form-inline .ant-form-item {
+  margin-right: 8px;
+  margin-bottom: 0;
+}
+
+.script-manager .ant-table-title .ant-input {
+  border-radius: 4px;
+}
+
+.script-manager .ant-table-title .ant-select {
+  border-radius: 4px;
+}
+
+.script-manager .ant-table-title .ant-btn-small {
+  height: 28px;
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+/* 响应式表格标题栏 */
+@media (max-width: 768px) {
+  .script-manager .ant-table-title > div {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+
+  .script-manager .ant-table-title > div > div:first-child {
+    flex-direction: column !important;
+    min-width: auto !important;
+    gap: 8px !important;
+  }
+
+  .script-manager .ant-table-title .ant-input,
+  .script-manager .ant-table-title .ant-select {
+    width: 100% !important;
+  }
+
+  .script-manager .ant-table-title .ant-btn {
+    width: 100% !important;
+  }
+
+  .script-manager .ant-table-title .ant-space {
+    justify-content: stretch;
+  }
+
+  .script-manager .ant-table-title .ant-space .ant-btn {
+    flex: 1;
+  }
+}

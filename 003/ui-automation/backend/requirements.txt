@@ -1,0 +1,117 @@
+# FastAPI 核心依赖
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+
+# 异步支持
+asyncio
+aiofiles
+httpx
+
+# 数据库依赖
+sqlalchemy
+alembic
+pymysql
+
+# Neo4j 图数据库
+neo4j
+py2neo
+
+# Milvus 向量数据库
+pymilvus
+
+# AutoGen 智能体框架
+autogen-agentchat==0.6.1
+autogen-core==0.6.1
+autogen-ext[openai]==0.6.1
+
+# AI 模型客户端
+openai
+
+# UI-TARS 相关依赖
+# ui-tars
+# transformers>=4.37.0
+#torch>=2.0.0
+# torchvision
+
+# 多模态处理
+pillow
+opencv-python
+numpy
+
+# 网页抓取框架
+crawl4ai>=0.6.3
+playwright>=1.52.0
+
+# 文档解析 (Marker)
+# marker-pdf==1.7.3
+pymupdf
+pytesseract
+
+# 数据处理
+pandas
+scikit-learn
+
+# 缓存
+redis
+aioredis
+
+# 日志和监控
+loguru
+prometheus-client
+
+# 安全
+python-jose
+passlib[bcrypt]
+python-multipart
+
+# 开发工具
+pytest
+pytest-asyncio
+black
+isort
+flake8
+
+# 环境配置
+python-dotenv
+
+# WebSocket 支持
+websockets
+
+# 文件上传
+python-multipart
+
+# 时间处理
+python-dateutil
+
+# JSON 处理
+orjson
+
+# HTTP 客户端
+requests
+
+# 进程管理
+psutil
+
+# 加密
+bcrypt
+
+# 配置管理
+dynaconf
+
+# SSE 支持
+sse-starlette
+
+# YAML 处理
+pyyaml
+
+# 图像处理增强
+Pillow>=9.0.0
+
+# 异步数据库支持
+asyncpg
+aiomysql
+
+# 类型检查
+typing-extensions

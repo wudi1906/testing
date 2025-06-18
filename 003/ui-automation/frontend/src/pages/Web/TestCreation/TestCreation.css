@@ -1,0 +1,280 @@
+/* 测试创建页面样式 */
+.test-creation-container {
+  padding: 0;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  min-height: 100vh;
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding: 32px 0;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.header-icon {
+  color: #1890ff;
+  margin-right: 12px;
+  font-size: 28px;
+}
+
+.main-card {
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.main-card .ant-card-body {
+  padding: 32px;
+}
+
+.image-uploader {
+  width: 100%;
+}
+
+.image-uploader .ant-upload {
+  width: 100%;
+  height: 200px;
+}
+
+.image-uploader .ant-upload-list-picture-card-container {
+  width: 100%;
+  height: 200px;
+}
+
+.image-uploader .ant-upload-list-picture-card .ant-upload-list-item {
+  width: 100%;
+  height: 200px;
+}
+
+.analysis-progress {
+  margin: 24px 0;
+  padding: 24px;
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border-radius: 8px;
+  border: 1px solid #e1f5fe;
+}
+
+.progress-bar {
+  margin-top: 16px;
+}
+
+.result-section {
+  margin-top: 32px;
+  padding-top: 24px;
+}
+
+.result-summary {
+  margin: 24px 0;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 16px;
+}
+
+.stat-item .stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1890ff;
+  margin-top: 8px;
+}
+
+.action-buttons {
+  margin: 24px 0;
+  text-align: center;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .test-creation-container {
+    padding: 16px;
+  }
+  
+  .page-header {
+    padding: 24px 16px;
+    margin-bottom: 24px;
+  }
+  
+  .main-card .ant-card-body {
+    padding: 24px 16px;
+  }
+  
+  .image-uploader .ant-upload {
+    height: 150px;
+  }
+}
+
+/* 动画效果 */
+.main-card {
+  transition: all 0.3s ease;
+}
+
+.main-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.analysis-progress {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(24, 144, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(24, 144, 255, 0);
+  }
+}
+
+/* 标签页样式 */
+.ant-tabs-tab {
+  font-weight: 500;
+}
+
+.ant-tabs-tab-active {
+  background: linear-gradient(135deg, #1890ff, #722ed1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* 表单样式增强 */
+.ant-form-item-label > label {
+  font-weight: 500;
+  color: #262626;
+}
+
+.ant-input,
+.ant-input-affix-wrapper,
+.ant-select-selector {
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  transition: all 0.3s ease;
+}
+
+.ant-input:focus,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper-focused,
+.ant-select-focused .ant-select-selector {
+  border-color: #1890ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* 按钮样式增强 */
+.ant-btn-primary {
+  background: linear-gradient(135deg, #1890ff, #722ed1);
+  border: none;
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #40a9ff, #9254de);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+}
+
+.ant-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* 卡片样式增强 */
+.ant-card {
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+}
+
+.ant-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 4px 16px rgba(24, 144, 255, 0.1);
+}
+
+/* 上传组件样式 */
+.ant-upload-drag {
+  border-radius: 8px;
+  border: 2px dashed #d9d9d9;
+  transition: all 0.3s ease;
+}
+
+.ant-upload-drag:hover {
+  border-color: #1890ff;
+  background: rgba(24, 144, 255, 0.02);
+}
+
+.ant-upload-drag.ant-upload-drag-hover {
+  border-color: #1890ff;
+  background: rgba(24, 144, 255, 0.05);
+}
+
+/* 进度条样式 */
+.ant-progress-line {
+  border-radius: 4px;
+}
+
+.ant-progress-bg {
+  background: linear-gradient(90deg, #1890ff, #722ed1);
+  border-radius: 4px;
+}
+
+/* 标签样式 */
+.ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+  border: none;
+}
+
+/* 分割线样式 */
+.ant-divider {
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+/* 警告框样式 */
+.ant-alert {
+  border-radius: 6px;
+  border: none;
+}
+
+.ant-alert-info {
+  background: linear-gradient(135deg, #e6f7ff, #f6ffed);
+  border-left: 4px solid #1890ff;
+}
+
+/* 加载状态 */
+.ant-spin-container {
+  transition: all 0.3s ease;
+}
+
+.ant-spin-blur {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* 自定义滚动条 */
+.test-creation-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.test-creation-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.test-creation-container::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.test-creation-container::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}

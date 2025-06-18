@@ -1,0 +1,374 @@
+/* 测试结果页面样式 */
+.test-results-container {
+  padding: 24px;
+  background: #f0f2f5;
+  min-height: calc(100vh - 64px);
+}
+
+.page-header {
+  text-align: center;
+  margin-bottom: 32px;
+  padding: 32px 0;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.header-icon {
+  color: #fa8c16;
+  margin-right: 12px;
+  font-size: 28px;
+}
+
+.results-tabs {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.results-tabs .ant-tabs-tab {
+  font-size: 16px;
+  font-weight: 500;
+  padding: 12px 24px;
+}
+
+.results-tabs .ant-tabs-tab-active {
+  background: linear-gradient(135deg, #fa8c16, #faad14);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stat-card {
+  border-radius: 8px;
+  text-align: center;
+  transition: all 0.3s ease;
+  border: 1px solid #f0f0f0;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  border-color: #fa8c16;
+}
+
+.stat-card .ant-statistic-title {
+  font-size: 14px;
+  color: #8c8c8c;
+  margin-bottom: 8px;
+}
+
+.stat-card .ant-statistic-content {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+/* 表格样式 */
+.ant-table {
+  border-radius: 8px;
+}
+
+.ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+  border-bottom: 2px solid #f0f0f0;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: #fff7e6;
+}
+
+/* 状态标签样式 */
+.ant-tag {
+  border-radius: 12px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 进度条样式 */
+.ant-progress-line {
+  border-radius: 4px;
+}
+
+.ant-progress-bg {
+  background: linear-gradient(90deg, #fa8c16, #faad14);
+  border-radius: 4px;
+}
+
+.ant-progress-success-bg {
+  background: #52c41a;
+}
+
+/* 操作按钮样式 */
+.ant-btn[data-icon="eye"] {
+  color: #1890ff;
+}
+
+.ant-btn[data-icon="play-circle"] {
+  color: #52c41a;
+}
+
+.ant-btn[data-icon="download"] {
+  color: #fa8c16;
+}
+
+.ant-btn:hover {
+  transform: scale(1.1);
+}
+
+/* 详情模态框样式 */
+.result-detail {
+  padding: 16px 0;
+}
+
+.result-detail .ant-col {
+  margin-bottom: 12px;
+}
+
+.result-detail pre {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* 空状态样式 */
+.ant-empty {
+  padding: 40px 0;
+}
+
+.ant-empty-description {
+  color: #8c8c8c;
+}
+
+/* 加载状态 */
+.ant-spin-container {
+  min-height: 200px;
+}
+
+/* 分页样式 */
+.ant-pagination {
+  margin-top: 24px;
+  text-align: right;
+}
+
+.ant-pagination-item-active {
+  border-color: #fa8c16;
+  background: #fa8c16;
+}
+
+.ant-pagination-item-active a {
+  color: white;
+}
+
+/* 响应式设计 */
+@media (max-width: 1200px) {
+  .test-results-container {
+    padding: 16px;
+  }
+  
+  .results-tabs {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 992px) {
+  .stat-card {
+    margin-bottom: 16px;
+  }
+  
+  .results-tabs .ant-tabs-tab {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 768px) {
+  .test-results-container {
+    padding: 12px;
+  }
+  
+  .page-header {
+    padding: 24px 16px;
+    margin-bottom: 24px;
+  }
+  
+  .results-tabs {
+    padding: 12px;
+  }
+  
+  .results-tabs .ant-tabs-tab {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+  
+  /* 移动端表格滚动 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+  }
+  
+  .ant-table {
+    min-width: 600px;
+  }
+}
+
+/* 动画效果 */
+.test-results-container .ant-card {
+  animation: fadeInUp 0.6s ease-out;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 统计卡片悬停效果 */
+.stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(250, 140, 22, 0.1), transparent);
+  transition: left 0.5s;
+}
+
+.stat-card:hover::before {
+  left: 100%;
+}
+
+/* 表格行悬停效果 */
+.ant-table-tbody > tr {
+  transition: all 0.3s ease;
+}
+
+.ant-table-tbody > tr:hover {
+  transform: translateX(2px);
+}
+
+/* 标签动画 */
+.ant-tag {
+  transition: all 0.3s ease;
+}
+
+.ant-tag:hover {
+  transform: scale(1.05);
+}
+
+/* 按钮组动画 */
+.ant-space {
+  transition: all 0.3s ease;
+}
+
+.ant-space:hover {
+  transform: translateX(2px);
+}
+
+/* 模态框动画 */
+.ant-modal-content {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.ant-modal-header {
+  background: linear-gradient(135deg, #fafafa, #f0f0f0);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.ant-modal-title {
+  font-weight: 600;
+  color: #262626;
+}
+
+/* 错误信息样式 */
+.result-detail div[style*="background: #fff2f0"] {
+  border-left: 4px solid #ff4d4f;
+  animation: slideInLeft 0.3s ease-out;
+}
+
+/* 日志样式 */
+.result-detail div[style*="background: #fafafa"] {
+  border-left: 4px solid #1890ff;
+  animation: slideInLeft 0.3s ease-out;
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* 刷新按钮动画 */
+.ant-btn[data-icon="reload"] {
+  transition: transform 0.3s ease;
+}
+
+.ant-btn[data-icon="reload"]:hover {
+  transform: rotate(180deg);
+}
+
+/* 成功率颜色渐变 */
+.ant-statistic-content-value {
+  background: linear-gradient(135deg, currentColor, currentColor);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* 表格加载状态 */
+.ant-table-placeholder {
+  padding: 60px 0;
+}
+
+.ant-spin-dot {
+  color: #fa8c16;
+}
+
+/* 分页按钮样式 */
+.ant-pagination-prev,
+.ant-pagination-next {
+  border-radius: 6px;
+}
+
+.ant-pagination-item {
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.ant-pagination-item:hover {
+  border-color: #fa8c16;
+  transform: translateY(-1px);
+}
+
+/* 工具提示样式 */
+.ant-tooltip {
+  font-size: 12px;
+}
+
+.ant-tooltip-inner {
+  border-radius: 6px;
+  padding: 6px 8px;
+}

@@ -1,0 +1,91 @@
+/* LoadingSpinner组件样式 */
+.loading-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  min-height: 200px;
+}
+
+.loading-spinner-wrapper {
+  min-height: 200px;
+}
+
+.loading-tip {
+  margin-top: 16px;
+  font-size: 14px;
+  color: #8c8c8c;
+  text-align: center;
+}
+
+/* 自定义加载动画 */
+.ant-spin-dot {
+  color: #1890ff;
+}
+
+.ant-spin-dot-item {
+  background-color: #1890ff;
+}
+
+/* 加载容器样式 */
+.ant-spin-container {
+  transition: all 0.3s ease;
+}
+
+.ant-spin-blur {
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 加载文字样式 */
+.ant-spin-text {
+  color: #8c8c8c;
+  font-size: 14px;
+  margin-top: 8px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .loading-spinner-container {
+    padding: 30px 15px;
+    min-height: 150px;
+  }
+  
+  .loading-tip {
+    font-size: 13px;
+    margin-top: 12px;
+  }
+}
+
+/* 动画效果 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.loading-spinner-container {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* 自定义旋转动画 */
+@keyframes customSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-spinner-container .anticon-loading {
+  animation: customSpin 1s linear infinite;
+  color: #1890ff;
+}
