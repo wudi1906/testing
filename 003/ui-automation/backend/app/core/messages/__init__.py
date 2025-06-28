@@ -28,6 +28,10 @@ __all__ = [
     'YAMLExecutionRequest', 'YAMLExecutionConfig',
     'PlaywrightExecutionRequest', 'PlaywrightExecutionConfig',
 
+    # 测试用例元素解析消息类型
+    'TestCaseElementParseRequest', 'TestCaseElementParseResponse',
+    'ParsedPageElement', 'ParsedPageInfo',
+
 
 
     # Android模块消息类型

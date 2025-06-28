@@ -13,9 +13,10 @@ from app.core.types import TopicTypes, AgentTypes
 from app.core.agents import StreamResponseCollector
 # 导入消息类型
 from app.core.messages import (
-    WebMultimodalAnalysisRequest, YAMLExecutionRequest, PlaywrightExecutionRequest,
-    AnalysisType
+    WebMultimodalAnalysisRequest, WebMultimodalAnalysisResponse, YAMLExecutionRequest, PlaywrightExecutionRequest,
+    AnalysisType, PageAnalysis, TestCaseElementParseRequest
 )
+import uuid
 
 
 class WebOrchestrator:
@@ -157,6 +158,284 @@ class WebOrchestrator:
 
         except Exception as e:
             logger.error(f"业务流程1失败: {session_id}, 错误: {str(e)}")
+            raise
+        finally:
+            await self._cleanup_runtime()
+
+    # ==================== 业务流程2: 页面分析（纯分析，不生成脚本） ====================
+
+    async def analyze_page_elements(
+        self,
+        session_id: str,
+        image_data: str,
+        page_name: str,
+        page_description: str,
+        page_url: Optional[str] = None
+    ):
+        """
+        业务流程2: 页面分析（纯分析，不生成脚本）
+
+        专门用于页面元素识别和分析，不生成测试脚本
+        分析结果会自动保存到数据库中
+
+        Args:
+            session_id: 会话ID
+            image_data: Base64图片数据
+            page_name: 页面名称
+            page_description: 页面描述
+            page_url: 页面URL（可选）
+
+        Returns:
+            Dict[str, Any]: 包含页面分析结果
+        """
+        try:
+            logger.info(f"开始业务流程2 - 页面元素分析: {session_id}, 页面: {page_name}")
+
+            # 设置运行时
+            await self._setup_runtime(session_id)
+
+            # 构建页面分析请求
+            analysis_request = WebMultimodalAnalysisRequest(
+                session_id=session_id,
+                analysis_type=AnalysisType.IMAGE,
+                image_data=image_data,
+                test_description=page_description,
+                additional_context=f"页面名称: {page_name}\n页面URL: {page_url}" if page_url else f"页面名称: {page_name}",
+                web_url=page_url,
+                target_url=page_url,
+                generate_formats=[]  # 不生成脚本，只进行页面分析
+            )
+
+            # 发送到页面分析智能体
+            await self.runtime.publish_message(
+                analysis_request,
+                topic_id=TopicId(type=TopicTypes.PAGE_ANALYZER.value, source="user")
+            )
+
+            logger.info(f"业务流程2完成: {session_id}")
+
+        except Exception as e:
+            logger.error(f"业务流程2失败: {session_id}, 错误: {str(e)}")
+            raise
+        finally:
+            await self._cleanup_runtime()
+
+    # ==================== 业务流程4: 基于文本生成脚本 ====================
+
+    async def generate_scripts_from_text(
+        self,
+        session_id: str,
+        test_description: str,
+        additional_context: Optional[str] = None,
+        generate_formats: Optional[List[str]] = None
+    ):
+        """
+        业务流程4: 基于自然语言文本生成测试脚本
+
+        Args:
+            session_id: 会话ID
+            test_description: 测试描述文本
+            additional_context: 额外上下文
+            generate_formats: 生成格式列表，如 ["yaml", "playwright"]
+        """
+        try:
+            logger.info(f"开始业务流程4 - 文本生成脚本: {session_id}")
+
+            if generate_formats is None:
+                generate_formats = ["yaml"]
+
+            # 设置运行时
+            await self._setup_runtime(session_id)
+
+            # 创建虚拟的多模态分析请求（不包含图片数据）
+            text_analysis_request = WebMultimodalAnalysisRequest(
+                session_id=session_id,
+                analysis_type=AnalysisType.TEXT,
+                image_data="",  # 空图片数据，表示基于文本生成
+                test_description=test_description,
+                additional_context=additional_context or "",
+                generate_formats=generate_formats
+            )
+
+            # 创建虚拟的分析结果（模拟图片分析的输出结构）
+            mock_analysis_result = WebMultimodalAnalysisResponse(
+                analysis_id=str(uuid.uuid4()),
+                session_id=session_id,
+                page_analysis=PageAnalysis(
+                    page_title="基于文本生成的测试",
+                    page_type="文本描述",
+                    main_content=test_description,
+                    ui_elements=[],
+                    test_actions=[],
+                    confidence_score=0.9
+                ),
+                ui_elements=[],
+                test_actions=[],
+                confidence_score=0.9,
+                analysis_time=datetime.now().isoformat(),
+                metadata={
+                    "generation_type": "text_to_script",
+                    "source": "natural_language_description"
+                }
+            )
+
+            # 根据用户选择的格式发送到相应的脚本生成智能体
+            await self._route_to_script_generators_from_text(
+                mock_analysis_result,
+                generate_formats,
+                test_description,
+                additional_context
+            )
+
+            logger.info(f"业务流程4完成: {session_id}")
+
+        except Exception as e:
+            logger.error(f"业务流程4失败: {session_id}, 错误: {str(e)}")
+            raise
+        finally:
+            await self._cleanup_runtime()
+
+    async def _route_to_script_generators_from_text(
+        self,
+        analysis_result: WebMultimodalAnalysisResponse,
+        generate_formats: List[str],
+        test_description: str,
+        additional_context: Optional[str] = None
+    ) -> None:
+        """根据用户选择的格式路由到相应的脚本生成智能体（文本生成模式）"""
+        try:
+            # 支持的格式映射
+            format_topic_mapping = {
+                "yaml": TopicTypes.YAML_GENERATOR.value,
+                "playwright": TopicTypes.PLAYWRIGHT_GENERATOR.value
+            }
+
+            # 为每种格式发送消息
+            for format_name in generate_formats:
+                if format_name in format_topic_mapping:
+                    topic_type = format_topic_mapping[format_name]
+
+                    # 增强分析结果，添加文本生成的特殊标记
+                    enhanced_result = analysis_result.model_copy()
+                    enhanced_result.metadata = enhanced_result.metadata or {}
+                    enhanced_result.metadata.update({
+                        "generation_mode": "text_to_script",
+                        "original_text": test_description,
+                        "additional_context": additional_context or "",
+                        "target_format": format_name
+                    })
+
+                    # 发送到对应的脚本生成智能体
+                    await self.runtime.publish_message(
+                        enhanced_result,
+                        topic_id=TopicId(type=topic_type, source="user")
+                    )
+
+                    logger.info(f"已发送文本生成请求到 {format_name} 生成器")
+                else:
+                    logger.warning(f"不支持的生成格式: {format_name}")
+
+        except Exception as e:
+            logger.error(f"路由到脚本生成智能体失败: {str(e)}")
+            raise
+
+    # ==================== 业务流程5: 图片生成描述 ====================
+
+    async def generate_description_from_image(
+        self,
+        session_id: str,
+        image_data: str,
+        additional_context: Optional[str] = None
+    ):
+        """
+        业务流程5: 基于图片生成自然语言测试用例描述
+
+        Args:
+            session_id: 会话ID
+            image_data: Base64编码的图片数据
+            additional_context: 额外上下文
+        """
+        try:
+            logger.info(f"开始业务流程5 - 图片生成描述: {session_id}")
+
+            # 设置运行时
+            await self._setup_runtime(session_id)
+
+            # 创建图片分析请求
+            image_analysis_request = WebMultimodalAnalysisRequest(
+                session_id=session_id,
+                analysis_type=AnalysisType.IMAGE,
+                image_data=image_data,
+                test_description="生成测试用例描述",
+                additional_context=additional_context or "",
+                generate_formats=[]  # 不生成脚本，只生成描述
+            )
+
+            # 发送到图片描述生成智能体
+            await self.runtime.publish_message(
+                image_analysis_request,
+                topic_id=TopicId(type=TopicTypes.IMAGE_DESCRIPTION_GENERATOR.value, source="user")
+            )
+
+            logger.info(f"业务流程5完成: {session_id}")
+
+        except Exception as e:
+            logger.error(f"业务流程5失败: {session_id}, 错误: {str(e)}")
+            raise
+        finally:
+            await self._cleanup_runtime()
+
+    # ==================== 业务流程6: 测试用例元素解析 ====================
+
+    async def parse_test_case_elements(
+        self,
+        session_id: str,
+        test_case_content: str,
+        test_description: Optional[str] = None,
+        target_format: str = "playwright",
+        additional_context: Optional[str] = None
+    ):
+        """
+        业务流程6: 测试用例元素解析
+
+        根据用户编写的测试用例内容，智能分析并从数据库中获取相应的页面元素信息，
+        对返回的数据进行整理分类，为脚本生成智能体提供结构化的页面元素数据。
+
+        Args:
+            session_id: 会话ID
+            test_case_content: 用户编写的测试用例内容
+            test_description: 测试描述
+            target_format: 目标脚本格式 (yaml, playwright)
+            additional_context: 额外上下文信息
+
+        Returns:
+            Dict[str, Any]: 包含解析结果
+        """
+        try:
+            logger.info(f"开始业务流程6 - 测试用例元素解析: {session_id}, 格式: {target_format}")
+
+            # 设置运行时
+            await self._setup_runtime(session_id)
+
+            # 构建测试用例解析请求
+            parse_request = TestCaseElementParseRequest(
+                session_id=session_id,
+                test_case_content=test_case_content,
+                test_description=test_description,
+                target_format=target_format,
+                additional_context=additional_context
+            )
+
+            # 发送到测试用例元素解析智能体
+            await self.runtime.publish_message(
+                parse_request,
+                topic_id=TopicId(type=TopicTypes.TEST_CASE_ELEMENT_PARSER.value, source="orchestrator")
+            )
+
+            logger.info(f"业务流程6完成: {session_id}")
+
+        except Exception as e:
+            logger.error(f"业务流程6失败: {session_id}, 错误: {str(e)}")
             raise
         finally:
             await self._cleanup_runtime()

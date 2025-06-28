@@ -9,6 +9,7 @@ from .sessions import Session
 from .scripts import TestScript, ScriptTag, ScriptRelationship
 from .executions import ScriptExecution, ExecutionArtifact, BatchExecution, ExecutionLog
 from .reports import TestReport
+from .page_analysis import PageAnalysisResult, PageElement
 # from .templates import ReportTemplate, ScriptCollection, CollectionScript, CollectionTag
 # from .settings import SystemSetting, UserPreference
 
@@ -24,6 +25,8 @@ __all__ = [
     'BatchExecution',
     'ExecutionLog',
     'TestReport',
+    'PageAnalysisResult',
+    'PageElement',
     # 'ReportTag',
     # 'TestCaseResult',
     # 'ReportTemplate',

@@ -16,6 +16,7 @@ class AnalysisType(str, Enum):
     """分析类型枚举"""
     IMAGE = "image"
     URL = "url"
+    TEXT = "text"
     MIXED = "mixed"
 
 
@@ -248,6 +249,86 @@ class ScriptExecutionStatus(BaseMessage):
     duration: Optional[float] = Field(None, description="执行时长（秒）")
     error_message: Optional[str] = Field(None, description="错误信息")
     report_path: Optional[str] = Field(None, description="报告路径")
+
+
+# ============ 页面分析存储消息类型 ============
+
+class PageAnalysisStorageRequest(BaseMessage):
+    """页面分析结果存储请求消息"""
+    session_id: str = Field(..., description="会话ID")
+    analysis_id: str = Field(..., description="分析ID")
+    page_name: str = Field(..., description="页面名称")
+    page_url: Optional[str] = Field(None, description="页面URL")
+    page_type: str = Field(default="unknown", description="页面类型")
+    page_description: str = Field(..., description="页面描述")
+    analysis_result: PageAnalysis = Field(..., description="页面分析结果")
+    confidence_score: float = Field(default=0.0, description="置信度分数")
+    analysis_metadata: Dict[str, Any] = Field(default_factory=dict, description="分析元数据")
+
+
+class PageAnalysisStorageResponse(BaseMessage):
+    """页面分析结果存储响应消息"""
+    session_id: str = Field(..., description="会话ID")
+    analysis_id: str = Field(..., description="分析ID")
+    storage_id: str = Field(..., description="存储记录ID")
+    status: str = Field(..., description="存储状态: success, failed")
+    message: str = Field(..., description="响应消息")
+    stored_elements_count: int = Field(default=0, description="存储的元素数量")
+
+
+# ============ 测试用例元素解析消息类型 ============
+
+class TestCaseElementParseRequest(BaseMessage):
+    """测试用例元素解析请求消息"""
+    session_id: str = Field(..., description="会话ID")
+    test_case_content: str = Field(..., description="用户编写的测试用例内容")
+    test_description: Optional[str] = Field(None, description="测试描述")
+    target_format: str = Field(default="yaml", description="目标脚本格式: yaml, playwright")
+    additional_context: Optional[str] = Field(None, description="额外上下文信息")
+    page_filter: Optional[List[str]] = Field(None, description="页面过滤条件")
+
+
+class ParsedPageElement(BaseModel):
+    """解析后的页面元素信息"""
+    element_id: str = Field(..., description="元素ID")
+    element_name: str = Field(..., description="元素名称")
+    element_type: str = Field(..., description="元素类型")
+    element_description: str = Field(..., description="元素描述")
+    selector: Optional[str] = Field(None, description="元素选择器")
+    position: Optional[Dict[str, Any]] = Field(None, description="元素位置信息")
+    visual_features: Optional[Dict[str, Any]] = Field(None, description="视觉特征")
+    functionality: Optional[str] = Field(None, description="功能描述")
+    interaction_state: Optional[str] = Field(None, description="交互状态")
+    confidence_score: float = Field(default=0.0, description="置信度分数")
+    is_testable: bool = Field(default=True, description="是否可测试")
+    test_priority: str = Field(default="medium", description="测试优先级")
+
+
+class ParsedPageInfo(BaseModel):
+    """解析后的页面信息"""
+    page_id: str = Field(..., description="页面ID")
+    page_name: str = Field(..., description="页面名称")
+    page_description: str = Field(..., description="页面描述")
+    page_type: str = Field(..., description="页面类型")
+    page_url: Optional[str] = Field(None, description="页面URL")
+    confidence_score: float = Field(default=0.0, description="置信度分数")
+    elements: List[ParsedPageElement] = Field(default_factory=list, description="页面元素列表")
+    element_categories: Dict[str, List[str]] = Field(default_factory=dict, description="元素分类")
+
+
+class TestCaseElementParseResponse(BaseMessage):
+    """测试用例元素解析响应消息"""
+    session_id: str = Field(..., description="会话ID")
+    parse_id: str = Field(..., description="解析ID")
+    test_case_content: str = Field(..., description="原始测试用例内容")
+    parsed_pages: List[ParsedPageInfo] = Field(default_factory=list, description="解析的页面信息")
+    element_summary: Dict[str, Any] = Field(default_factory=dict, description="元素汇总信息")
+    analysis_insights: List[str] = Field(default_factory=list, description="分析洞察")
+    recommendations: List[str] = Field(default_factory=list, description="建议")
+    confidence_score: float = Field(default=0.0, description="整体置信度")
+    processing_time: float = Field(default=0.0, description="处理时间（秒）")
+    status: str = Field(..., description="处理状态")
+    message: str = Field(..., description="响应消息")
 
 
 # ============ 统一的图像分析消息类型 ============

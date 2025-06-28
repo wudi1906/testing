@@ -63,7 +63,19 @@ class PlaywrightGeneratorAgent(BaseAgent):
     def _build_prompt_template_static() -> str:
         """构建静态的Playwright代码生成提示模板（用于工厂方法）"""
         return """
-你是MidScene.js + Playwright测试代码生成专家，专门根据UI分析结果生成高质量的可直接运行的自动化测试代码。
+你是MidScene.js + Playwright测试代码生成专家，专门根据页面分析结果和用户测试需求生成高质量的可直接运行的自动化测试代码。
+
+## 核心任务理解
+
+### 输入信息分析
+1. **页面分析结果**: 包含页面的UI元素、用户流程、测试场景等结构化信息
+2. **用户测试需求**: main_content字段包含用户用自然语言描述的具体测试步骤和期望
+3. **测试上下文**: 页面类型、置信度、分析总结等辅助信息
+
+### 代码生成目标
+- 将用户的自然语言测试需求转换为可执行的MidScene.js + Playwright代码
+- 充分利用页面分析结果中的UI元素信息进行精确定位
+- 确保生成的代码能够完整覆盖用户描述的测试场景
 
 ## MidScene.js + Playwright 集成规范（基于官方文档）
 
@@ -89,9 +101,9 @@ export const test = base.extend<PlayWrightAiFixtureType>(PlaywrightAiFixture({
 
 #### 1. 基础AI操作
 ```typescript
-// ai/aiAction - 通用AI交互（推荐优先使用）
+// ai/aiAction - 通用AI交互（不优先使用）
 await ai('type "Headphones" in search box, hit Enter');
-await ai('click the blue login button in top right corner');
+await aiAction('click the blue login button in top right corner');
 
 // aiTap - 点击操作
 await aiTap('搜索按钮');
@@ -212,28 +224,48 @@ const items = await aiQuery("获取商品列表");
 
 ## 代码生成要求
 
-### 1. **输出格式**
+### 1. **用户需求理解与转换**
+- **需求分析**: 仔细分析main_content中用户的测试需求描述
+- **步骤映射**: 将用户描述的每个测试步骤映射为对应的MidScene.js操作
+- **场景完整性**: 确保生成的代码覆盖用户描述的完整测试场景
+- **期望验证**: 将用户的预期结果转换为相应的断言和验证
+
+### 2. **输出格式要求**
 - 直接输出完整的TypeScript测试文件
 - 不要包装在JSON或其他格式中
 - 确保代码可以直接运行
+- 包含必要的注释说明用户需求对应关系
 
-### 2. **代码结构**
+### 3. **代码结构设计**
 - 包含完整的import语句
-- 使用test.beforeEach设置页面
+- 使用test.beforeEach设置页面和视口
 - 测试函数包含所有必要的AI操作参数
+- 测试用例名称应反映用户的测试意图
 
-### 3. **最佳实践**
-- 优先使用ai进行复合操作
-- 为aiQuery提供准确的TypeScript类型
-- 添加适当的console.log用于调试
-- 使用expect进行标准断言
+### 4. **MidScene.js操作策略**
+- **复合操作优先**: 对于用户描述的连续动作，使用ai()进行组合操作
+- **精确操作补充**: 对于特定的单一操作，使用aiTap、aiInput等方法
+- **智能等待**: 根据用户流程添加适当的aiWaitFor操作
+- **数据验证**: 为用户期望的结果添加aiQuery和aiAssert验证
 
-### 4. **视觉描述**
-- 基于界面可见内容而非DOM属性
-- 包含位置、颜色、文本等特征
-- 提供足够的上下文信息
+### 5. **视觉描述优化**
+- **用户语言转换**: 将用户的自然语言描述转换为MidScene.js的视觉描述
+- **元素特征结合**: 结合页面分析中的UI元素信息进行精确描述
+- **上下文信息**: 包含位置、颜色、文本等特征，提供足够的上下文
+- **避免技术术语**: 使用用户友好的描述而非技术选择器
 
-请根据UI分析结果，严格按照官方示例格式生成可直接运行的MidScene.js + Playwright测试代码。
+### 6. **测试可靠性保证**
+- 添加适当的console.log用于调试和跟踪
+- 使用expect进行标准断言验证
+- 考虑异常情况和错误处理
+- 确保测试在不同环境下的稳定性
+
+### 7. **特别注意事项**
+- **忠实用户意图**: 严格按照用户描述的测试步骤和期望进行代码生成
+- **保持测试逻辑**: 不要添加用户未要求的额外测试步骤
+- **实用性优先**: 生成实际可执行且有意义的测试代码
+
+请根据页面分析结果和用户测试需求，严格按照官方示例格式生成可直接运行的MidScene.js + Playwright测试代码。
 """
 
     def _build_prompt_template(self) -> str:
@@ -304,7 +336,7 @@ const items = await aiQuery("获取商品列表");
     async def _send_to_database_saver(self, playwright_content: str, script_description: str, analysis_result: WebMultimodalAnalysisResponse, file_path: str) -> None:
         """发送脚本到数据库保存智能体"""
         try:
-            from app.agents.web.script_database_saver import ScriptSaveRequest
+            from app.agents.web.test_script_storage_agent import ScriptSaveRequest
             from app.models.test_scripts import ScriptFormat, ScriptType
             script_name = os.path.basename(file_path)
             # 创建保存请求
@@ -340,19 +372,48 @@ const items = await aiQuery("获取商品列表");
 
             # 构建生成任务
             task = f"""
-基于以下UI分析结果，生成标准的MidScene.js + Playwright测试代码：
+基于以下页面分析结果和用户测试需求，生成标准的MidScene.js + Playwright测试代码：
 
 {analysis_summary}
 
-## 生成要求
+## 代码生成要求
 
-1. **输出格式**: 直接输出完整的TypeScript代码，不要包装在JSON或其他格式中
-2. **元素描述**: 使用详细的视觉描述，包含位置、颜色、文本等特征
-3. **API选择**: 优先使用ai进行复合操作，确定交互类型时使用即时操作
-4. **代码结构**: 生成完整的测试文件，包含导入、测试用例和断言
-5. **类型安全**: 为aiQuery提供TypeScript类型定义
+### 1. 输出格式要求
+- **直接输出**: 完整的TypeScript代码，不要包装在JSON或其他格式中
+- **文件结构**: 生成完整的.spec.ts测试文件
+- **导入语句**: 包含所有必要的import语句
 
-请严格按照MidScene.js + Playwright集成规范生成高质量的测试代码。
+### 2. 测试用例设计要求
+- **测试名称**: 基于用户测试需求生成有意义的测试用例名称
+- **页面设置**: 使用test.beforeEach设置页面和视口
+- **测试步骤**: 严格按照用户描述的测试步骤进行代码组织
+
+### 3. MidScene.js API使用要求
+- **优先使用ai()**: 对于复合操作，如"在搜索框输入关键词并点击搜索"
+- **精确操作**: 对于单一操作，使用aiTap、aiInput等具体方法
+- **视觉描述**: 使用详细的视觉描述而非技术选择器，包含：
+  - 元素的位置信息（如"页面顶部"、"左侧导航"、"右上角"）
+  - 视觉特征（如"蓝色按钮"、"搜索图标"、"下拉菜单"）
+  - 文本内容（如"登录按钮"、"用户名输入框"）
+
+### 4. 数据查询和验证要求
+- **类型安全**: 为aiQuery提供准确的TypeScript类型定义
+- **数据格式**: 使用标准的JSON Schema格式，如 `{{field: type}}[]`
+- **验证断言**: 结合expect断言和aiAssert AI验证
+- **等待机制**: 使用aiWaitFor确保页面状态正确
+
+### 5. 代码质量要求
+- **错误处理**: 添加适当的等待和重试机制
+- **调试信息**: 包含console.log输出关键信息
+- **注释说明**: 为复杂操作添加中文注释
+- **测试可靠性**: 确保测试在不同环境下的稳定性
+
+### 6. 特别注意事项
+- **用户需求优先**: 严格按照main_content中的用户测试需求进行代码生成
+- **流程完整性**: 确保测试覆盖用户描述的所有关键步骤
+- **实际可执行**: 生成的代码应该能够直接运行，无需额外修改
+
+请严格按照以上要求和MidScene.js + Playwright集成规范生成高质量、可直接运行的测试代码。
 """
             return task
 
@@ -361,33 +422,88 @@ const items = await aiQuery("获取商品列表");
             raise
 
     def _prepare_analysis_summary(self, message: WebMultimodalAnalysisResponse) -> str:
-        """准备优化后的分析摘要，充分利用GraphFlow智能体的结构化输出"""
+        """准备优化后的分析摘要，充分利用页面分析智能体的结构化输出"""
         try:
             page_analysis = message.page_analysis
+
+            # 格式化UI元素列表
+            ui_elements_text = ""
+            if page_analysis.ui_elements:
+                ui_elements_text = "\n".join([f"  - {element}" for element in page_analysis.ui_elements])
+            else:
+                ui_elements_text = "  - 暂无识别的UI元素"
+
+            # 格式化用户流程
+            user_flows_text = ""
+            if page_analysis.user_flows:
+                user_flows_text = "\n".join([f"  {i+1}. {flow}" for i, flow in enumerate(page_analysis.user_flows)])
+            else:
+                user_flows_text = "  1. 暂无识别的用户流程"
+
+            # 格式化测试场景
+            test_scenarios_text = ""
+            if page_analysis.test_scenarios:
+                test_scenarios_text = "\n".join([f"  - {scenario}" for scenario in page_analysis.test_scenarios])
+            else:
+                test_scenarios_text = "  - 暂无识别的测试场景"
+
+            # 格式化测试步骤
+            test_steps_text = ""
+            if page_analysis.test_steps:
+                test_steps_text = "\n".join([
+                    f"  {step.step_number}. {step.action} - {step.target}: {step.description}"
+                    for step in page_analysis.test_steps
+                ])
+            else:
+                test_steps_text = "  1. 暂无具体测试步骤"
 
             # 构建完整的增强摘要
             summary = f"""
 ## 页面基本信息
-- **标题**: {page_analysis.page_title}
-- **类型**: {page_analysis.page_type}
-- **主要内容**: {page_analysis.main_content[:300]}...
+- **页面标题**: {page_analysis.page_title or '未识别'}
+- **页面类型**: {page_analysis.page_type}
+- **置信度分数**: {page_analysis.confidence_score:.2f}
+- **用户测试需求**: {page_analysis.main_content}
 
-## GraphFlow分析结果
-### UI元素:
-{page_analysis.ui_elements}
-### 交互流程:
-{page_analysis.user_flows}
+## 页面分析结果
+
+### 识别的UI元素:
+{ui_elements_text}
+
+### 用户交互流程:
+{user_flows_text}
+
 ### 测试场景:
-{page_analysis.test_scenarios}
+{test_scenarios_text}
 
-## MidScene.js + Playwright设计指导
+### 分析总结:
+{page_analysis.analysis_summary}
 
-基于以上分析结果，请重点关注：
-1. **高置信度元素**: 优先使用置信度≥0.8的UI元素进行操作设计
-2. **详细视觉描述**: 利用颜色、位置、形状等特征进行精确元素定位
-3. **结构化流程**: 参考交互流程的步骤序列和验证点设计
-4. **MidScene.js最佳实践**: 使用详细的视觉描述，遵循单一职责原则
-5. **TypeScript类型安全**: 为数据查询提供准确的类型定义
+## MidScene.js + Playwright代码生成指导
+
+基于以上页面分析结果和用户测试需求，请重点关注：
+
+1. **用户需求理解**:
+   - 主要内容描述了用户的具体测试需求和步骤
+   - 需要将用户的自然语言描述转换为MidScene.js的AI操作
+
+2. **UI元素精确定位**:
+   - 利用识别的UI元素进行精确的视觉描述
+   - 结合元素的功能和位置特征进行MidScene.js操作设计
+
+3. **流程化测试设计**:
+   - 参考用户流程和测试步骤的序列进行代码组织
+   - 确保每个步骤都有对应的MidScene.js操作和验证
+
+4. **MidScene.js最佳实践**:
+   - 优先使用ai()进行复合操作
+   - 使用详细的视觉描述而非技术选择器
+   - 为数据查询提供准确的TypeScript类型定义
+
+5. **测试完整性**:
+   - 包含适当的等待和验证操作
+   - 添加必要的断言确保测试可靠性
+   - 考虑异常情况的处理
 """
             return summary
 

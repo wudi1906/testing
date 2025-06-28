@@ -5,6 +5,7 @@
 
 from .base import BaseRepository
 from .script_repository import ScriptRepository
+from .page_analysis_repository import PageAnalysisRepository, PageElementRepository
 # from .session_repository import SessionRepository
 # from .project_repository import ProjectRepository
 # from .execution_repository import ExecutionRepository
@@ -13,6 +14,8 @@ from .script_repository import ScriptRepository
 __all__ = [
     'BaseRepository',
     'ScriptRepository',
+    'PageAnalysisRepository',
+    'PageElementRepository',
     # 'SessionRepository',
     # 'ProjectRepository',
     # 'ExecutionRepository',

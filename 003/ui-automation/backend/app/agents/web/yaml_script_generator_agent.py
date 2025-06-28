@@ -405,7 +405,7 @@ web:
     async def _send_to_database_saver(self, yaml_content: str, analysis_result: WebMultimodalAnalysisResponse, file_path: str) -> None:
         """发送脚本到数据库保存智能体"""
         try:
-            from app.agents.web.script_database_saver import ScriptSaveRequest
+            from app.agents.web.test_script_storage_agent import ScriptSaveRequest
             from app.models.test_scripts import ScriptFormat, ScriptType
 
             # 创建保存请求

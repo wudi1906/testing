@@ -26,6 +26,8 @@ class AgentTypes(Enum):
     WEB_SCRAPER = "web_scraper"                      # 网页抓取智能体（Crawl4AI）
     API_ANALYZER = "api_analyzer"                    # API接口分析智能体
     IMAGE_ANALYZER = "image_analyzer"                # 图片分析智能体
+    PAGE_ANALYZER = "page_analyzer"
+    IMAGE_DESCRIPTION_GENERATOR = "image_description_generator"
 
     # 生成类智能体
     TEST_PLANNER = "test_planner"                    # 测试规划智能体
@@ -44,6 +46,10 @@ class AgentTypes(Enum):
     REPORT_GENERATOR = "report_generator"            # 报告生成智能体
     SCRIPT_MANAGER = "script_manager"                # 脚本管理智能体
     SCRIPT_DATABASE_SAVER = "script_database_saver"  # 脚本数据库保存智能体
+    PAGE_ANALYSIS_STORAGE = "page_analysis_storage"  # 页面分析存储智能体
+
+    # 解析类智能体
+    TEST_CASE_ELEMENT_PARSER = "test_case_element_parser"  # 测试用例元素解析智能体
 
 
 class TopicTypes(Enum):
@@ -60,6 +66,8 @@ class TopicTypes(Enum):
     API_TEST_GENERATOR = "api_test_generator"
     ACTION_GENERATOR = "action_generator"            # 动作生成主题（保持兼容性）
     IMAGE_ANALYZER = "image_analyzer"                # Web分析主题
+    PAGE_ANALYZER = "page_analyzer"  # 页面分析主题
+    IMAGE_DESCRIPTION_GENERATOR="image_description_generator"
 
     # 执行类主题
     YAML_EXECUTOR = "yaml_executor"
@@ -71,6 +79,10 @@ class TopicTypes(Enum):
     REPORT_GENERATOR = "report_generator"
     SCRIPT_MANAGER = "script_manager"
     SCRIPT_DATABASE_SAVER = "script_database_saver"
+    PAGE_ANALYSIS_STORAGE = "page_analysis_storage"
+
+    # 解析类主题
+    TEST_CASE_ELEMENT_PARSER = "test_case_element_parser"
 
     # 系统主题
     STREAM_OUTPUT = "stream_output"
@@ -129,6 +141,7 @@ class MessageRegion(Enum):
     ANALYSIS = "analysis"
     GENERATION = "generation"
     REVIEW = "review"
+    TESTCASE = "testcase"  # 最终测试用例区域
     ERROR = "error"
     SUCCESS = "success"
     WARNING = "warning"

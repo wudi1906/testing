@@ -4,12 +4,13 @@ Web平台相关智能体模块
 """
 
 # Web专用智能体
-from app.agents.web.image_analyzer import ImageAnalyzerAgent
-from app.agents.web.yaml_generator import YAMLGeneratorAgent
-from app.agents.web.yaml_executor import YAMLExecutorAgent
-from app.agents.web.playwright_generator import PlaywrightGeneratorAgent
-from app.agents.web.playwright_executor import PlaywrightExecutorAgent
-from app.agents.web.script_database_saver import ScriptDatabaseSaverAgent
+from app.agents.web.ui_image_analyzer_agent import ImageAnalyzerAgent
+from app.agents.web.yaml_script_generator_agent import YAMLGeneratorAgent
+from app.agents.web.yaml_script_executor_agent import YAMLExecutorAgent
+from app.agents.web.playwright_script_generator_agent import PlaywrightGeneratorAgent
+from app.agents.web.playwright_script_executor_agent import PlaywrightExecutorAgent
+from app.agents.web.test_script_storage_agent import ScriptDatabaseSaverAgent
+from app.agents.web.page_data_storage_agent import PageAnalysisStorageAgent
 
 __all__ = [
     'ImageAnalyzerAgent',
@@ -17,5 +18,6 @@ __all__ = [
      'YAMLExecutorAgent',
     'PlaywrightGeneratorAgent',
     'PlaywrightExecutorAgent',
-    'ScriptDatabaseSaverAgent'
+    'ScriptDatabaseSaverAgent',
+    'PageAnalysisStorageAgent'
 ]

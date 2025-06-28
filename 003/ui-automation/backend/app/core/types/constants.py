@@ -20,6 +20,7 @@ AGENT_NAMES: Dict[str, str] = {
     AgentTypes.WEB_SCRAPER.value: "网页抓取智能体",
     AgentTypes.API_ANALYZER.value: "API接口分析智能体",
     AgentTypes.IMAGE_ANALYZER.value: "图片分析智能体",
+    AgentTypes.PAGE_ANALYZER.value: "页面分析智能体",
 
     # 生成类智能体
     AgentTypes.TEST_PLANNER.value: "测试规划智能体",
@@ -37,7 +38,11 @@ AGENT_NAMES: Dict[str, str] = {
     AgentTypes.RESULT_ANALYZER.value: "结果分析智能体",
     AgentTypes.REPORT_GENERATOR.value: "报告生成智能体",
     AgentTypes.SCRIPT_MANAGER.value: "脚本管理智能体",
-    AgentTypes.SCRIPT_DATABASE_SAVER.value: "脚本数据库保存智能体"
+    AgentTypes.SCRIPT_DATABASE_SAVER.value: "脚本数据库保存智能体",
+    AgentTypes.PAGE_ANALYSIS_STORAGE.value: "页面分析存储智能体",
+
+    # 解析类智能体
+    AgentTypes.TEST_CASE_ELEMENT_PARSER.value: "测试用例元素解析智能体"
 }
 
 # 主题类型映射
@@ -65,6 +70,10 @@ TOPIC_TYPES: Dict[str, str] = {
     "report_generator": TopicTypes.REPORT_GENERATOR.value,
     "script_manager": TopicTypes.SCRIPT_MANAGER.value,
     "script_database_saver": TopicTypes.SCRIPT_DATABASE_SAVER.value,
+    "page_analysis_storage": TopicTypes.PAGE_ANALYSIS_STORAGE.value,
+
+    # 解析类主题
+    "test_case_element_parser": TopicTypes.TEST_CASE_ELEMENT_PARSER.value,
 
     # 系统主题
     "stream_output": TopicTypes.STREAM_OUTPUT.value,

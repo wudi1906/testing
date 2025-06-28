@@ -6,10 +6,14 @@ from fastapi import APIRouter
 # 导入各功能模块的路由
 from app.api.v1.endpoints.web import (
     image_analysis_router,
+    page_analysis_router,
     script_management_router,
-    script_execution_router
+    script_execution_router,
+    text_to_script_router,
+    image_to_description_router,
+    test_case_parser_router
 )
-from app.api.v1.endpoints.web.test_reports import router as test_reports_router
+from app.api.v1.endpoints.web.test_execution_reports import router as test_reports_router
 from app.api.v1.endpoints import sessions, system
 
 api_router = APIRouter()
@@ -22,6 +26,13 @@ api_router.include_router(
     image_analysis_router,
     prefix="/web/create",
     tags=["Web-图片分析"]
+)
+
+# Web页面分析 - /web/page-analysis/* (页面截图智能分析)
+api_router.include_router(
+    page_analysis_router,
+    prefix="/web/page-analysis",
+    tags=["Web-页面分析"]
 )
 
 # Web脚本管理 - /web/scripts/* (数据库脚本管理)
@@ -44,6 +55,29 @@ api_router.include_router(
     prefix="/web/reports",
     tags=["Web-测试报告"]
 )
+
+# Web文本生成脚本API - /web/create/* (基于自然语言生成脚本)
+api_router.include_router(
+    text_to_script_router,
+    prefix="/web/create",
+    tags=["Web-文本生成脚本"]
+)
+
+# Web图片描述生成API - /web/create/* (图片分析生成描述)
+api_router.include_router(
+    image_to_description_router,
+    prefix="/web/create",
+    tags=["Web-图片描述生成"]
+)
+
+# Web测试用例元素解析API - /web/test-case-parser/* (测试用例解析页面元素)
+api_router.include_router(
+    test_case_parser_router,
+    prefix="/web/test-case-parser",
+    tags=["Web-测试用例解析"]
+)
+
+
 
 # ==================== 系统模块 ====================
 

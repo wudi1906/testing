@@ -33,28 +33,34 @@ class AgentFactory:
         """注册所有智能体类"""
         try:
             # Web平台智能体
-            from app.agents.web.image_analyzer import ImageAnalyzerAgent
-            from app.agents.web.yaml_generator import YAMLGeneratorAgent
-            from app.agents.web.yaml_executor import YAMLExecutorAgent
-            from app.agents.web.playwright_generator import PlaywrightGeneratorAgent
-            from app.agents.web.playwright_executor import PlaywrightExecutorAgent
-            from app.agents.web.script_database_saver import ScriptDatabaseSaverAgent
-            
+            from app.agents.web.ui_image_analyzer_agent import ImageAnalyzerAgent
+            from app.agents.web.page_element_analyzer_agent import PageAnalyzerAgent
+            from app.agents.web.page_data_storage_agent import PageAnalysisStorageAgent
+            from app.agents.web.yaml_script_generator_agent import YAMLGeneratorAgent
+            from app.agents.web.yaml_script_executor_agent import YAMLExecutorAgent
+            from app.agents.web.playwright_script_generator_agent import PlaywrightGeneratorAgent
+            from app.agents.web.playwright_script_executor_agent import PlaywrightExecutorAgent
+            from app.agents.web.test_script_storage_agent import ScriptDatabaseSaverAgent
+            from app.agents.web.image_description_agent import ImageDescriptionGeneratorAgent
+            from app.agents.web.test_case_parser_agent import TestCaseElementParserAgent
+
             # 注册智能体类
             self._agent_classes.update({
                 AgentTypes.IMAGE_ANALYZER.value: ImageAnalyzerAgent,
+                AgentTypes.PAGE_ANALYZER.value: PageAnalyzerAgent,
+                AgentTypes.PAGE_ANALYSIS_STORAGE.value: PageAnalysisStorageAgent,
                 AgentTypes.YAML_GENERATOR.value: YAMLGeneratorAgent,
                 AgentTypes.YAML_EXECUTOR.value: YAMLExecutorAgent,
                 AgentTypes.PLAYWRIGHT_GENERATOR.value: PlaywrightGeneratorAgent,
                 AgentTypes.PLAYWRIGHT_EXECUTOR.value: PlaywrightExecutorAgent,
                 AgentTypes.SCRIPT_DATABASE_SAVER.value: ScriptDatabaseSaverAgent,
+                AgentTypes.IMAGE_DESCRIPTION_GENERATOR.value: ImageDescriptionGeneratorAgent,
+                AgentTypes.TEST_CASE_ELEMENT_PARSER.value: TestCaseElementParserAgent,
             })
             
             # 调试信息
             logger.info(f"已注册 {len(self._agent_classes)} 个智能体类")
             logger.debug(f"注册的智能体类型: {list(self._agent_classes.keys())}")
-            logger.debug(f"IMAGE_ANALYZER 值: {AgentTypes.IMAGE_ANALYZER.value}")
-            logger.debug(f"IMAGE_ANALYZER 是否在注册列表中: {AgentTypes.IMAGE_ANALYZER.value in self._agent_classes}")
 
         except ImportError as e:
             logger.error(f"智能体类导入失败: {str(e)}")
@@ -126,8 +132,10 @@ class AgentFactory:
             
             # 根据智能体类型选择合适的模型客户端
             if not kwargs.get('model_client_instance'):
-                if agent_type == AgentTypes.IMAGE_ANALYZER.value:
+                if agent_type in [AgentTypes.IMAGE_ANALYZER.value, AgentTypes.PAGE_ANALYZER.value]:
                     kwargs['model_client_instance'] = get_uitars_model_client()
+                elif agent_type == AgentTypes.TEST_CASE_ELEMENT_PARSER.value:
+                    kwargs['model_client_instance'] = get_deepseek_model_client()
                 else:
                     kwargs['model_client_instance'] = get_deepseek_model_client()
             
@@ -208,6 +216,33 @@ class AgentFactory:
                 collector=collector,
             )
 
+            # 注册页面分析智能体
+            await self.register_agent(
+                runtime,
+                AgentTypes.PAGE_ANALYZER.value,
+                TopicTypes.PAGE_ANALYZER.value,
+                enable_user_feedback=enable_user_feedback,
+                collector=collector,
+            )
+
+            # 注册分析图片生成自然语言用例智能体
+            await self.register_agent(
+                runtime,
+                AgentTypes.IMAGE_DESCRIPTION_GENERATOR.value,
+                TopicTypes.IMAGE_DESCRIPTION_GENERATOR.value,
+                enable_user_feedback=enable_user_feedback,
+                collector=collector,
+            )
+
+            # 注册页面分析存储智能体
+            await self.register_agent(
+                runtime,
+                AgentTypes.PAGE_ANALYSIS_STORAGE.value,
+                TopicTypes.PAGE_ANALYSIS_STORAGE.value,
+                enable_user_feedback=enable_user_feedback,
+                collector=collector,
+            )
+
             # 注册YAML生成智能体
             await self.register_agent(
                 runtime,
@@ -241,6 +276,13 @@ class AgentFactory:
                 runtime,
                 AgentTypes.SCRIPT_DATABASE_SAVER.value,
                 TopicTypes.SCRIPT_DATABASE_SAVER.value
+            )
+
+            # 注册测试用例元素解析智能体
+            await self.register_agent(
+                runtime,
+                AgentTypes.TEST_CASE_ELEMENT_PARSER.value,
+                TopicTypes.TEST_CASE_ELEMENT_PARSER.value
             )
 
             logger.info(f"Web平台智能体注册完成，共注册 {len(self._registered_agents)} 个智能体")
@@ -310,12 +352,17 @@ class AgentFactory:
                                       runtime: SingleThreadedAgentRuntime,
                                       collector) -> None:
         """注册流式响应收集器
-        
+
         Args:
             runtime: 智能体运行时
             collector: 响应收集器实例
         """
         try:
+            # 检查回调函数是否存在
+            if collector.callback is None:
+                logger.warning("流式响应收集器回调函数为空，跳过注册")
+                return
+
             await ClosureAgent.register_closure(
                 runtime,
                 "stream_collector_agent",
@@ -327,9 +374,9 @@ class AgentFactory:
                     )
                 ],
             )
-            
+
             logger.info("流式响应收集器注册成功")
-            
+
         except Exception as e:
             logger.error(f"注册流式响应收集器失败: {str(e)}")
             raise

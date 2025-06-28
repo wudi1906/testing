@@ -1,5 +1,5 @@
 """
-图片专门分析智能体
+UI图像深度分析智能体
 基于AutoGen团队协作机制，专门用于深度分析UI界面图片
 支持MultiModalMessage和团队协作分析
 """
@@ -509,7 +509,8 @@ class ImageAnalyzerAgent(BaseAgent):
 请严格按照以下JSON格式输出，每个元素包含完整信息：
 
 ```json
-[
+{
+"登录页面":[
   {
     "id": "element_001",
     "name": "登录按钮",
@@ -530,6 +531,7 @@ class ImageAnalyzerAgent(BaseAgent):
     "confidence_score": 0.95
   }
 ]
+}
 ```
 
 ## 质量标准
