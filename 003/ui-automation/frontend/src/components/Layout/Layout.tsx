@@ -18,6 +18,7 @@ import {
   PlayCircleOutlined,
   BarChartOutlined,
   FileTextOutlined,
+  TableOutlined,
   SettingOutlined,
   UserOutlined,
   LogoutOutlined,
@@ -33,7 +34,6 @@ import {
   UnorderedListOutlined,
   PieChartOutlined,
   EditOutlined,
-  TableOutlined,
   BulbOutlined,
   ApiOutlined,
   DashboardFilled,
@@ -123,6 +123,13 @@ const menuItems: MenuItem[] = [
     type: 'group',
     icon: null,
     children: [
+      {
+        key: 'web-page-management',
+        icon: <TableOutlined />,
+        label: '页面管理',
+        path: '/web/pages',
+        type: 'item'
+      },
       {
         key: 'web-test-create',
         icon: <ExperimentOutlined />,

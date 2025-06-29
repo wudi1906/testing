@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import WebTestCreation from './components/WebTestCreation/WebTestCreation';
 import WebTestCreationOptimized from './components/WebTestCreation/WebTestCreationOptimized';
 import WebTestExecutionOptimized from './components/WebTestExecution/WebTestExecutionOptimized';
+import TestCaseParserDemo from './components/WebTestCreation/TestCaseParserDemo';
 // 导入Web模块下的页面组件
 import TestCreation from './TestCreation/TestCreation';
 import TestExecution from './TestExecution/TestExecution';
@@ -13,10 +14,10 @@ import TestReports from './TestReports/TestReports';
 const WebModule: React.FC = () => {
   return (
     <Routes>
-      {/* Web测试创建页面 - 原版本 */}
+      {/* Web测试创建页面 - 新版本（AI智能创建） */}
       <Route path="create" element={<WebTestCreation />} />
 
-      {/* Web测试创建页面 - 优化版本 */}
+      {/* Web测试创建页面 - 优化版本（备用） */}
       <Route path="create-optimized" element={<WebTestCreationOptimized />} />
 
       {/* Web测试执行页面 - 原版本 */}
@@ -37,8 +38,11 @@ const WebModule: React.FC = () => {
       {/* Web测试报告页面 */}
       <Route path="reports" element={<TestReports />} />
 
-      {/* 默认重定向到优化版创建页面 */}
-      <Route path="" element={<Navigate to="create-optimized" replace />} />
+      {/* 测试用例解析演示页面 */}
+      <Route path="test-case-parser-demo" element={<TestCaseParserDemo />} />
+
+      {/* 默认重定向到创建页面 */}
+      <Route path="" element={<Navigate to="create" replace />} />
     </Routes>
   );
 };

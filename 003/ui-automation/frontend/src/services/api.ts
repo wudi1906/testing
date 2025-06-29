@@ -423,6 +423,34 @@ export const executeScriptFromDB = async (scriptId: string, executeRequest: {
 export const executeScript = executeScriptFromDB;
 
 /**
+ * 基于自然语言文本生成测试脚本
+ */
+export const generateTestFromText = async (data: {
+  test_description: string;
+  generate_formats: string[];
+  additional_context?: string;
+}): Promise<AnalysisResult> => {
+  const response = await apiClient.post('/web/create/generate-from-text', data);
+  return response.data;
+};
+
+/**
+ * 分析图片生成自然语言描述
+ */
+export const analyzeImageToDescription = async (formData: FormData): Promise<{
+  description: string;
+  session_id: string;
+  analysis_result?: any;
+}> => {
+  const response = await apiClient.post('/web/create/analyze-image-to-description', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
+};
+
+/**
  * 批量执行数据库中的脚本
  */
 export const batchExecuteScriptsFromDB = async (batchRequest: {
@@ -1289,6 +1317,148 @@ export const createScript = async (data: {
 // 重复的函数定义已移除，使用上面的版本
 
 // 重复的 createScript 函数已移除，使用上面的版本
+
+// ==================== 测试用例元素解析API ====================
+
+/**
+ * 测试用例解析请求接口
+ */
+export interface TestCaseParseRequest {
+  test_case_content: string;
+  test_description?: string;
+  target_format: 'yaml' | 'playwright';
+  additional_context?: string;
+}
+
+/**
+ * 测试用例解析响应接口
+ */
+export interface TestCaseParseResponse {
+  status: string;
+  session_id: string;
+  sse_endpoint: string;
+  message: string;
+  target_format: string;
+  test_case_info: {
+    content_length: number;
+    has_description: boolean;
+    has_context: boolean;
+  };
+}
+
+/**
+ * 测试用例解析状态接口
+ */
+export interface TestCaseParseStatus {
+  success: boolean;
+  data: {
+    session_id: string;
+    status: string;
+    progress: number;
+    created_at: string;
+    last_activity: string;
+    error?: string;
+    completed_at?: string;
+    test_case_info: {
+      content_length: number;
+      target_format: string;
+      has_description: boolean;
+      has_context: boolean;
+    };
+  };
+}
+
+/**
+ * 提交测试用例解析请求
+ */
+export const parseTestCaseElements = async (data: TestCaseParseRequest): Promise<TestCaseParseResponse> => {
+  const formData = new FormData();
+  formData.append('test_case_content', data.test_case_content);
+  if (data.test_description) {
+    formData.append('test_description', data.test_description);
+  }
+  formData.append('target_format', data.target_format);
+  if (data.additional_context) {
+    formData.append('additional_context', data.additional_context);
+  }
+
+  const response = await fetch(`${API_BASE_URL}${API_VERSION}/web/test-case-parser/parse`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  return response.json();
+};
+
+/**
+ * 获取测试用例解析状态
+ */
+export const getTestCaseParseStatus = async (sessionId: string): Promise<TestCaseParseStatus> => {
+  const response = await apiClient.get(`/web/test-case-parser/status/${sessionId}`);
+  return response.data;
+};
+
+/**
+ * 清理测试用例解析会话
+ */
+export const cleanupTestCaseParseSession = async (sessionId: string): Promise<{ success: boolean; message: string }> => {
+  const response = await apiClient.delete(`/web/test-case-parser/session/${sessionId}`);
+  return response.data;
+};
+
+/**
+ * 获取活跃的测试用例解析会话列表
+ */
+export const getActiveTestCaseParseSessions = async (): Promise<{
+  success: boolean;
+  data: {
+    total_sessions: number;
+    sessions: Array<{
+      session_id: string;
+      status: string;
+      progress: number;
+      created_at: string;
+      last_activity: string;
+      target_format: string;
+    }>;
+  };
+}> => {
+  const response = await apiClient.get('/web/test-case-parser/sessions');
+  return response.data;
+};
+
+/**
+ * 测试测试用例解析智能体功能
+ */
+export const testTestCaseParserAgent = async (): Promise<{
+  success: boolean;
+  message: string;
+  data: {
+    session_id: string;
+    sse_endpoint: string;
+    test_case_length: number;
+    target_format: string;
+  };
+}> => {
+  const response = await apiClient.post('/web/test-case-parser/test');
+  return response.data;
+};
+
+/**
+ * 健康检查测试用例解析服务
+ */
+export const checkTestCaseParserHealth = async (): Promise<{
+  status: string;
+  service: string;
+  timestamp: string;
+}> => {
+  const response = await apiClient.get('/web/test-case-parser/health');
+  return response.data;
+};
 
 // 导出API客户端
 export { apiClient };

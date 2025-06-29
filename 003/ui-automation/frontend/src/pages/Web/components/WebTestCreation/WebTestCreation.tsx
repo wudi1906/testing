@@ -1,1441 +1,846 @@
-import React, { useState, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
+/**
+ * Web测试创建组件 V2 - 简化版本
+ * 支持基于自然语言描述编写测试用例，图片自动生成描述，以及多格式脚本生成
+ */
+import React, { useState, useCallback, useRef } from 'react';
 import {
   Card,
-  Tabs,
-  Upload,
-  Input,
+  Row,
+  Col,
   Button,
-  Form,
+  Upload,
   Select,
   Space,
   Typography,
-  Alert,
-  Progress,
   Divider,
+  message,
+  Form,
+  Input,
+  Alert,
   Tag,
-  Row,
-  Col,
-  Checkbox,
-  message
+  Progress,
 } from 'antd';
 import {
-  UploadOutlined,
-  LinkOutlined,
+  PictureOutlined,
   PlayCircleOutlined,
-  DownloadOutlined,
-  EyeOutlined,
-  RobotOutlined,
-  ThunderboltOutlined,
-  GlobalOutlined,
-  NodeIndexOutlined,
-  InfoCircleOutlined,
-  CodeOutlined,
-  SaveOutlined,
-  CloseOutlined,
-  CheckCircleOutlined
+  ClearOutlined,
+  RobotOutlined
 } from '@ant-design/icons';
-import { motion } from 'framer-motion';
-import { useMutation } from 'react-query';
-import toast from 'react-hot-toast';
+import MDEditor from '@uiw/react-md-editor';
 
-import YAMLViewer from '../../../../components/YAMLViewer/YAMLViewer';
-import StreamingDisplay from '../../../../components/StreamingDisplay/StreamingDisplay';
 import {
-  analyzeWebImage,
-  analyzeWebURL,
-  startWebCrawl,
-  saveScriptFile,
-  executeYAMLContent,
-  executePlaywrightScript,
+  analyzeImageToDescription,
+  generateTestFromText,
   getGeneratedScripts,
   saveScriptFromSession
 } from '../../../../services/api';
 import './WebTestCreation.css';
 
-const { TabPane } = Tabs;
-const { TextArea } = Input;
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
 
-interface AnalysisResult {
-  session_id: string;
-  analysis_result: any;
-  yaml_script: any;
-  yaml_content: string;
-  file_path: string;
-  estimated_duration?: string;
-  generated_scripts?: Array<{
-    format: string;
-    content: string;
-    file_path: string;
-  }>;
-}
-
-interface ScriptData {
-  format: 'yaml' | 'playwright';
-  content: string;
-  filename: string;
-  file_path?: string;
-}
-
-interface ScriptCollection {
-  yaml?: ScriptData;
-  playwright?: ScriptData;
-}
-
 const WebTestCreation: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('image');
+  // 基础状态
   const [form] = Form.useForm();
-  const [urlForm] = Form.useForm();
-  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [uploadedFile, setUploadedFile] = useState<any>(null);
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(['playwright']);
-  const [crawlMode, setCrawlMode] = useState<'single' | 'multi'>('single');
-  const [currentSessionId, setCurrentSessionId] = useState<string>('');
-  const [preserveStreamingContent, setPreserveStreamingContent] = useState<boolean>(false);
-  const [testMode, setTestMode] = useState<boolean>(false);
+  const [testDescription, setTestDescription] = useState<string>('');
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['yaml']);
+  // 移除了activeTab状态，因为只保留手动编写标签页
 
-  // 脚本编辑相关状态
-  const [showScriptEditor, setShowScriptEditor] = useState(false);
-  const [scripts, setScripts] = useState<ScriptCollection>({});
-  const [activeScriptTab, setActiveScriptTab] = useState<'yaml' | 'playwright'>('playwright');
-  const [isEditingScript, setIsEditingScript] = useState<{yaml: boolean, playwright: boolean}>({yaml: false, playwright: false});
-  const [isSavingScript, setIsSavingScript] = useState(false);
-  const [isExecutingScript, setIsExecutingScript] = useState(false);
+  // 处理状态
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
 
-  // Web平台配置
-  const apiConfig = {
-    analyzeImage: analyzeWebImage,
-    analyzeURL: analyzeWebURL,
-    startCrawl: startWebCrawl,
-    platformName: 'Web',
-    platformIcon: <GlobalOutlined />,
-    platformColor: '#1890ff'
-  };
+  // 图片上传状态
+  const [imagePreview, setImagePreview] = useState<string>('');
+  const [showImageUpload, setShowImageUpload] = useState(false);
 
-  // 图片分析mutation - 上传文件并获取session_id
-  const imageAnalysisMutation = useMutation(apiConfig.analyzeImage, {
-    onSuccess: (data) => {
-      // 检查是否返回了SSE端点
-      if (data.sse_endpoint && data.session_id) {
-        // 设置会话ID，启动流式显示
-        console.log('设置会话ID:', data.session_id);
-        console.log('SSE端点:', data.sse_endpoint);
-        setCurrentSessionId(data.session_id);
-        toast.success('开始实时分析...');
-      } else {
-        // 直接返回结果的情况（兼容旧版本）
-        setAnalysisResult(data);
-        setIsAnalyzing(false);
-        toast.success(`${apiConfig.platformName}图片分析完成！`);
-        message.success('YAML测试脚本生成成功');
-      }
-    },
-    onError: (error: any) => {
-      setIsAnalyzing(false);
-      setCurrentSessionId('');
-      // 只有在真正的错误情况下才清除内容，而不是每次都清除
-      // setPreserveStreamingContent(false);
-      toast.error(`分析失败: ${error.message}`);
-      message.error(`${apiConfig.platformName}图片分析失败`);
-    }
-  });
+  // 右侧面板状态
+  const [analysisLog, setAnalysisLog] = useState<string>('');
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [currentStep, setCurrentStep] = useState<string>('');
+  const [infoOutput, setInfoOutput] = useState<string>(''); // 信息输出区域
 
-  // URL分析mutation
-  const urlAnalysisMutation = useMutation(apiConfig.analyzeURL, {
-    onSuccess: (data) => {
-      // 检查是否返回了SSE端点
-      if (data.sse_endpoint && data.session_id) {
-        // 设置会话ID，启动流式显示
-        console.log('URL分析设置会话ID:', data.session_id);
-        console.log('SSE端点:', data.sse_endpoint);
-        setCurrentSessionId(data.session_id);
-        toast.success('开始实时分析...');
-      } else {
-        // 直接返回结果的情况（兼容旧版本）
-        setAnalysisResult(data);
-        setIsAnalyzing(false);
+  // 使用ref跟踪分析完成状态，避免闭包问题
+  const analysisCompletedRef = useRef(false);
 
-        // 如果有session_id，设置它
-        if (data.session_id) {
-          setCurrentSessionId(data.session_id);
-          // 立即获取生成的脚本
-          fetchGeneratedScripts(data.session_id);
-        }
+  // 处理图片上传和分析
+  const handleImageUpload = useCallback(async (file: any) => {
+    try {
+      setIsAnalyzingImage(true);
+      setAnalysisProgress(0);
+      setCurrentStep('准备分析...');
+      analysisCompletedRef.current = false;
 
-        toast.success(`${apiConfig.platformName}网页分析完成！`);
-        message.success('YAML测试脚本生成成功');
-      }
-    },
-    onError: (error: any) => {
-      setIsAnalyzing(false);
-      setCurrentSessionId('');
-      // 只有在真正的错误情况下才清除内容，而不是每次都清除
-      // setPreserveStreamingContent(false);
-      toast.error(`分析失败: ${error.message}`);
-      message.error(`${apiConfig.platformName}网页分析失败`);
-    }
-  });
+      // 创建预览
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
 
-  // 多页面抓取mutation
-  const multiCrawlMutation = useMutation(
-    async (data: any) => {
-      // Web平台的多页面抓取API
-      const apiEndpoint = '/api/v1/web/create/crawl4ai/start';
+      // 清空现有内容和日志
+      setTestDescription('');
+      setAnalysisLog('🔍 开始分析界面截图...\n');
 
-      // 启动抓取任务
-      const response = await fetch(apiEndpoint, {
+      // 创建FormData并调用新的API
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('analysis_type', 'description_generation');
+      formData.append('additional_context', form.getFieldValue('additional_context') || '');
+
+      setCurrentStep('启动分析任务...');
+      setAnalysisProgress(10);
+
+      // 调用后端API启动图片分析任务
+      const response = await fetch('/api/v1/web/create/analyze-image-to-description', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
+        body: formData,
       });
 
       if (!response.ok) {
-        throw new Error('启动抓取任务失败');
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
 
       const result = await response.json();
-      const integrationId = result.integration_id || result.session_id;
 
-      // 轮询检查状态
-      return new Promise((resolve, reject) => {
-        const checkStatus = async () => {
-          try {
-            const statusEndpoint = `/api/v1/web/create/crawl4ai/status/${integrationId}`;
-            const statusResponse = await fetch(statusEndpoint);
-            const status = await statusResponse.json();
+      if (result.status === 'success' && result.session_id) {
+        setCurrentStep('建立连接...');
+        setAnalysisProgress(20);
 
-            if (status.status === 'completed') {
-              // 获取结果
-              const resultsEndpoint = `/api/v1/web/create/crawl4ai/results/${integrationId}`;
-              const resultsResponse = await fetch(resultsEndpoint);
-              const results = await resultsResponse.json();
-              resolve(results);
-            } else if (status.status === 'failed') {
-              reject(new Error(status.error_message || '抓取任务失败'));
-            } else {
-              // 继续轮询
-              setTimeout(checkStatus, 3000);
-            }
-          } catch (error) {
-            reject(error);
-          }
+        // 建立SSE连接接收流式数据
+        const eventSource = new EventSource(
+          `/api/v1/web/create/stream-description/${result.session_id}`
+        );
+
+        let finalTestCase = '';
+        let currentThought = '';
+
+        eventSource.onopen = () => {
+          console.log('SSE连接已建立');
+          setAnalysisLog(prev => prev + '✅ 连接已建立\n');
+          setCurrentStep('AI正在分析...');
+          setAnalysisProgress(30);
         };
 
-        checkStatus();
+        eventSource.addEventListener('connected', (event) => {
+          console.log('已连接到描述生成流');
+          setAnalysisLog(prev => prev + '🤖 AI智能体已启动\n');
+        });
+
+        eventSource.addEventListener('message', (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.content) {
+              // 根据region区分处理
+              if (data.region === 'testcase') {
+                // 最终测试用例显示在富文本编辑器（Markdown格式）
+                finalTestCase += data.content;
+                setTestDescription(finalTestCase);
+                setCurrentStep('生成测试用例...');
+                setAnalysisProgress(90);
+              } else {
+                // 思考过程和分析日志显示在右侧面板
+                currentThought += data.content;
+                setAnalysisLog(prev => prev + data.content);
+                setAnalysisProgress(prev => Math.min(prev + 5, 85));
+              }
+            }
+          } catch (e) {
+            console.error('解析SSE消息失败:', e);
+            setAnalysisLog(prev => prev + '⚠️ 消息解析错误\n');
+          }
+        });
+
+        eventSource.addEventListener('final_result', (event) => {
+          try {
+            // 检查是否有data字段且不为undefined
+            if (event.data && event.data !== 'undefined') {
+              const data = JSON.parse(event.data);
+              console.log('分析完成:', data.content);
+              setAnalysisLog(prev => prev + '\n✅ ' + (data.content || '分析完成') + '\n');
+              setCurrentStep('分析完成');
+              setAnalysisProgress(100);
+              analysisCompletedRef.current = true;
+
+              // 如果富文本编辑器还是空的，将思考过程作为最终结果
+              if (!finalTestCase.trim() && currentThought.trim()) {
+                setTestDescription(currentThought);
+              }
+
+              message.success('图片分析完成，已生成测试用例描述');
+            } else {
+              // 没有具体数据的完成事件
+              console.log('分析完成，无具体数据');
+              setAnalysisLog(prev => prev + '\n✅ 分析完成\n');
+              setCurrentStep('分析完成');
+              setAnalysisProgress(100);
+              analysisCompletedRef.current = true;
+
+              // 如果富文本编辑器还是空的，将思考过程作为最终结果
+              if (!finalTestCase.trim() && currentThought.trim()) {
+                setTestDescription(currentThought);
+              }
+
+              message.success('图片分析完成，已生成测试用例描述');
+            }
+            eventSource.close();
+            setIsAnalyzingImage(false);
+          } catch (e) {
+            console.error('解析最终结果失败:', e);
+            setAnalysisLog(prev => prev + '❌ 最终结果解析失败\n');
+            setCurrentStep('解析错误');
+            // 不要因为解析错误就不关闭连接和重置状态
+            eventSource.close();
+            setIsAnalyzingImage(false);
+          }
+        });
+
+        eventSource.addEventListener('error', (event) => {
+          // 首先检查是否是正常的连接关闭
+          if (eventSource.readyState === EventSource.CLOSED && analysisCompletedRef.current) {
+            console.log('SSE连接正常关闭（error事件）- 分析已完成');
+            eventSource.close();
+            setIsAnalyzingImage(false);
+            return;
+          }
+
+          try {
+            // 检查是否有data字段且不为undefined
+            if (event.data && event.data !== 'undefined') {
+              const data = JSON.parse(event.data);
+              console.error('分析错误:', data);
+              setAnalysisLog(prev => prev + `❌ 错误: ${data.error || '未知错误'}\n`);
+              setCurrentStep('分析失败');
+              message.error(`分析失败: ${data.error || '未知错误'}`);
+            } else {
+              // 没有具体错误信息的情况
+              console.error('SSE错误事件，无具体错误信息');
+              setAnalysisLog(prev => prev + '❌ 连接或处理过程中出现错误\n');
+              setCurrentStep('连接错误');
+              message.error('连接或处理过程中出现错误');
+            }
+          } catch (e) {
+            console.error('解析错误消息失败:', e);
+            setAnalysisLog(prev => prev + '❌ 分析过程中出现错误\n');
+            setCurrentStep('解析错误');
+            message.error('分析过程中出现错误');
+          }
+          eventSource.close();
+          setIsAnalyzingImage(false);
+        });
+
+        eventSource.onerror = (error) => {
+          console.error('SSE连接错误:', error);
+
+          // 检查是否是正常的连接关闭（分析完成后）
+          if (eventSource.readyState === EventSource.CLOSED && analysisCompletedRef.current) {
+            console.log('SSE连接正常关闭（onerror事件）- 分析已完成');
+            eventSource.close();
+            setIsAnalyzingImage(false);
+            return;
+          }
+
+          setAnalysisLog(prev => prev + '❌ 连接中断\n');
+          setCurrentStep('连接中断');
+          message.error('连接中断，请重试');
+          eventSource.close();
+          setIsAnalyzingImage(false);
+        };
+
+        // 设置超时处理
+        setTimeout(() => {
+          if (eventSource.readyState !== EventSource.CLOSED) {
+            eventSource.close();
+            setIsAnalyzingImage(false);
+            setCurrentStep('分析超时');
+            setAnalysisLog(prev => prev + '⏰ 分析超时\n');
+            message.warning('分析超时，请重试');
+          }
+        }, 60000); // 60秒超时
+
+      } else {
+        throw new Error('启动分析任务失败');
+      }
+
+    } catch (error: any) {
+      console.error('图片分析失败:', error);
+      setAnalysisLog(prev => prev + `❌ 分析失败: ${error.message || '未知错误'}\n`);
+      setCurrentStep('分析失败');
+      message.error(`图片分析失败: ${error.message || '未知错误'}`);
+      setIsAnalyzingImage(false);
+    }
+  }, [form]);
+
+  // 处理基于文本生成测试脚本
+  const handleGenerateFromText = useCallback(async () => {
+    if (!testDescription.trim()) {
+      message.warning('请输入测试用例描述');
+      return;
+    }
+
+    try {
+      setIsGenerating(true);
+
+      // 获取表单数据
+      const formValues = form.getFieldsValue();
+
+      // 创建FormData
+      const formData = new FormData();
+      formData.append('test_case_content', testDescription);
+      formData.append('test_description', formValues.test_description || '');
+      formData.append('target_format', selectedFormats.join(','));
+      formData.append('additional_context', formValues.additional_context || '');
+
+      // 调用后端API启动解析任务（使用与智能解析相同的接口）
+      const response = await fetch('/api/v1/web/test-case-parser/parse', {
+        method: 'POST',
+        body: formData,
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+
+      if (result.status === 'success') {
+        message.success('测试脚本生成任务已启动');
+        console.log('生成结果:', result);
+      } else {
+        throw new Error(result.message || '生成失败');
+      }
+
+    } catch (error: any) {
+      message.error(`生成失败: ${error.message}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [testDescription, selectedFormats, form]);
+
+  // 清空所有内容
+  const handleClear = useCallback(() => {
+    setTestDescription('');
+    setImagePreview('');
+    setShowImageUpload(false);
+    setAnalysisLog('');
+    setAnalysisProgress(0);
+    setCurrentStep('');
+    analysisCompletedRef.current = false;
+    form.resetFields();
+    message.success('已清空所有内容');
+  }, [form]);
+
+  // 切换图片上传显示
+  const toggleImageUpload = useCallback(() => {
+    setShowImageUpload(!showImageUpload);
+    if (showImageUpload) {
+      setImagePreview('');
+    }
+  }, [showImageUpload]);
+
+  // 示例模板
+  const exampleTemplates = [
+    {
+      title: '登录功能测试',
+      description: `# 登录功能测试用例
+
+## 测试目标
+验证用户登录功能的正确性
+
+## 测试步骤
+1. 打开登录页面
+2. 输入用户名: admin
+3. 输入密码: password123
+4. 点击登录按钮
+5. 验证登录成功，跳转到首页
+
+## 预期结果
+- 登录成功后显示用户信息
+- 页面跳转到首页或仪表板`
     },
     {
-      onSuccess: (data: any) => {
-        // 转换多页面抓取结果为单页面格式
-        const convertedResult = convertMultiCrawlResult(data);
-        setAnalysisResult(convertedResult);
-        setIsAnalyzing(false);
+      title: '表单提交测试',
+      description: `# 表单提交测试用例
 
-        // 设置会话ID
-        if (convertedResult.session_id) {
-          setCurrentSessionId(convertedResult.session_id);
-          // 立即获取生成的脚本
-          fetchGeneratedScripts(convertedResult.session_id);
-        }
+## 测试目标
+验证表单数据提交功能
 
-        toast.success('多页面抓取和分析完成！');
-        message.success(`成功抓取 ${data.crawl_results?.length || 0} 个页面并生成测试脚本`);
-      },
-      onError: (error: any) => {
-        setIsAnalyzing(false);
-        toast.error(`抓取失败: ${error.message}`);
-        message.error('多页面抓取失败');
-      }
+## 测试步骤
+1. 填写姓名字段
+2. 选择性别
+3. 输入邮箱地址
+4. 填写电话号码
+5. 点击提交按钮
+6. 验证提交成功提示
+
+## 预期结果
+- 表单验证通过
+- 显示提交成功消息`
     }
-  );
-
-  // 转换多页面抓取结果为单页面格式
-  const convertMultiCrawlResult = (multiResult: any) => {
-    const crawlResults = multiResult.crawl_results || [];
-    const generatedScripts = multiResult.generated_scripts || [];
-
-    // 合并所有页面的YAML内容
-    let combinedYaml = '';
-    let combinedAnalysis = {
-      analysis_id: `multi_crawl_${Date.now()}`,
-      analysis_type: 'multi_page_crawl',
-      page_analysis: {
-        page_title: `多页面测试套件 (${crawlResults.length}页)`,
-        page_type: 'multi_page_suite',
-        main_content: `基于Crawl4AI抓取的${crawlResults.length}个页面生成的完整测试套件`,
-        ui_elements: [],
-        user_flows: [],
-        test_scenarios: []
-      },
-      confidence_score: 0.9,
-      processing_time: 0
-    };
-
-    // 处理生成的脚本
-    if (generatedScripts.length > 0) {
-      const yamlScripts = generatedScripts
-        .filter((script: any) => script.yaml_content)
-        .map((script: any, index: number) => {
-          const pageInfo = script.page_info || {};
-          return `# 页面 ${index + 1}: ${pageInfo.title || pageInfo.url || '未知页面'}
-# URL: ${pageInfo.url || ''}
-# 页面类型: ${pageInfo.page_type || 'unknown'}
-# 复杂度: ${pageInfo.complexity_score || 1}/10
-
-${script.yaml_content}
-
----
-`;
-        });
-
-      combinedYaml = yamlScripts.join('\n');
-
-      // 合并分析结果
-      generatedScripts.forEach((script: any) => {
-        if (script.analysis_result?.page_analysis) {
-          const pageAnalysis = script.analysis_result.page_analysis;
-
-          // 合并UI元素
-          if (pageAnalysis.ui_elements) {
-            combinedAnalysis.page_analysis.ui_elements.push(...pageAnalysis.ui_elements);
-          }
-
-          // 合并用户流程
-          if (pageAnalysis.user_flows) {
-            combinedAnalysis.page_analysis.user_flows.push(...pageAnalysis.user_flows);
-          }
-
-          // 合并测试场景
-          if (pageAnalysis.test_scenarios) {
-            combinedAnalysis.page_analysis.test_scenarios.push(...pageAnalysis.test_scenarios);
-          }
-        }
-      });
-    }
-
-    return {
-      session_id: `multi_crawl_${Date.now()}`,
-      analysis_result: combinedAnalysis,
-      yaml_script: null,
-      yaml_content: combinedYaml || '# 多页面抓取完成，但未生成YAML脚本\n# 请检查抓取配置和生成设置',
-      file_path: '',
-      estimated_duration: `${crawlResults.length * 30}秒`,
-      multi_crawl_data: {
-        total_pages: crawlResults.length,
-        crawl_results: crawlResults,
-        generated_scripts: generatedScripts
-      }
-    };
-  };
-
-  const handleImageUpload = (file: any) => {
-    setUploadedFile(file);
-    return false; // 阻止自动上传
-  };
-
-  const handleImageAnalysis = async (values: any) => {
-    if (!uploadedFile) {
-      message.error('请先上传图片');
-      return;
-    }
-
-    setIsAnalyzing(true);
-    setCurrentSessionId(''); // 重置会话ID
-    // 注意：不要在开始新分析时重置preserveStreamingContent，让StreamingDisplay自己处理
-
-    const formData = new FormData();
-    formData.append('file', uploadedFile);
-    formData.append('test_description', values.test_description);
-    if (values.additional_context) {
-      formData.append('additional_context', values.additional_context);
-    }
-    formData.append('generate_formats', selectedFormats.join(','));
-
-    // 默认保存到数据库 - UI测试自动保存
-    formData.append('save_to_database', 'true');
-    formData.append('script_name', `UI测试脚本_${Date.now()}`);
-    formData.append('script_description', values.test_description || 'UI自动化测试脚本');
-    formData.append('tags', JSON.stringify(['UI测试', '自动化']));
-    formData.append('category', 'UI测试');
-    formData.append('priority', '1');
-
-    imageAnalysisMutation.mutate(formData);
-  };
-
-  const handleURLAnalysis = async (values: any) => {
-    setIsAnalyzing(true);
-    // 注意：不要在开始新分析时重置preserveStreamingContent，让StreamingDisplay自己处理
-
-    // 根据抓取模式选择不同的API
-    if (crawlMode === 'multi') {
-      // 使用Crawl4AI集成服务
-      const crawlRequest = {
-        homepage_url: values.url,
-        test_description: values.test_description,
-        additional_context: values.additional_context,
-        max_pages: values.max_pages || 20,
-        max_depth: values.max_depth || 2,
-        crawl_strategy: values.crawl_strategy || 'bfs',
-        user_query: values.user_query,
-        generate_formats: selectedFormats
-      };
-
-      // 调用多页面抓取API
-      multiCrawlMutation.mutate(crawlRequest);
-    } else {
-      // 使用单页面分析
-      const analysisRequest = {
-        ...values,
-        generate_formats: selectedFormats.join(',')
-      };
-      urlAnalysisMutation.mutate(analysisRequest);
-    }
-  };
-
-  const handleStreamingComplete = async (result: any) => {
-    console.log('流式分析完成，结果:', result);
-
-    setAnalysisResult(result);
-    setIsAnalyzing(false);
-    setPreserveStreamingContent(true); // 保持流式内容显示
-    setTestMode(false); // 关闭测试模式
-
-    // 确保会话ID被正确设置
-    if (result && result.session_id) {
-      console.log('设置会话ID:', result.session_id);
-      setCurrentSessionId(result.session_id); // 确保会话ID被设置
-
-      console.log('自动获取生成的脚本，会话ID:', result.session_id);
-      // 立即获取生成的脚本并显示编辑器
-      await fetchGeneratedScripts(result.session_id);
-    } else {
-      console.log('没有会话ID，尝试使用分析结果中的内容');
-      // 如果没有session_id，尝试直接使用分析结果中的内容
-      if (result && result.yaml_content) {
-        const newScripts: ScriptCollection = {
-          yaml: {
-            format: 'yaml',
-            content: result.yaml_content,
-            filename: `test_${Date.now()}.yaml`,
-            file_path: result.file_path || ''
-          }
-        };
-
-        setScripts(newScripts);
-        setShowScriptEditor(true);
-        setIsEditingScript({yaml: false, playwright: false});
-        setActiveScriptTab('yaml');
-
-        // 清除分析结果，确保只显示脚本编辑器
-        setAnalysisResult(null);
-
-        toast.success('成功加载YAML脚本！');
-
-        // 自动保存脚本到数据库
-        const scriptDataForSave = [{
-          format: 'yaml',
-          content: result.yaml_content,
-          filename: `test_${Date.now()}.yaml`
-        }];
-        await autoSaveScriptsToDatabase(scriptDataForSave, result.session_id);
-      }
-    }
-
-    toast.success('Web图片分析完成！');
-    message.success('YAML测试脚本生成成功');
-  };
-
-  // 获取生成的脚本
-  const fetchGeneratedScripts = async (sessionId: string) => {
-    try {
-      console.log('开始获取生成的脚本，会话ID:', sessionId);
-
-      // 减少延迟，因为流式分析完成时脚本应该已经生成
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      const response = await getGeneratedScripts(sessionId);
-      console.log('获取脚本响应:', response);
-      console.log('响应中的scripts:', response?.scripts);
-
-      const newScripts: ScriptCollection = {};
-
-      console.log('检查响应状态:', response.status);
-      console.log('检查脚本数组:', response.scripts);
-
-      if (response.status === 'success' && response.scripts && response.scripts.length > 0) {
-        console.log('找到脚本，开始处理...');
-        console.log('脚本数量:', response.scripts.length);
-
-        // 处理所有返回的脚本
-        response.scripts.forEach((script, index) => {
-          console.log(`处理脚本 ${index}:`, script);
-          console.log(`脚本格式: ${script.format}, 内容长度: ${script.content?.length || 0}`);
-
-          const scriptData: ScriptData = {
-            format: script.format as 'yaml' | 'playwright',
-            content: script.content,
-            filename: script.filename,
-            file_path: script.file_path
-          };
-
-          if (script.format === 'yaml') {
-            newScripts.yaml = scriptData;
-            console.log('设置YAML脚本');
-          } else if (script.format === 'playwright') {
-            newScripts.playwright = scriptData;
-            console.log('设置Playwright脚本');
-          }
-        });
-
-        console.log('设置脚本数据:', newScripts);
-        console.log('showScriptEditor将被设置为true');
-        setScripts(newScripts);
-        setShowScriptEditor(true);
-        setIsEditingScript({yaml: false, playwright: false}); // 重置编辑状态
-
-        // 设置默认激活的标签页
-        if (newScripts.yaml) {
-          setActiveScriptTab('yaml');
-          console.log('设置活动标签页为yaml');
-        } else if (newScripts.playwright) {
-          setActiveScriptTab('playwright');
-          console.log('设置活动标签页为playwright');
-        }
-
-        // 清除分析结果，确保只显示脚本编辑器
-        setAnalysisResult(null);
-        console.log('分析结果已清除，脚本编辑器应该显示');
-
-        toast.success(`成功加载${response.scripts.length}个脚本！`);
-
-        // 自动保存脚本到数据库
-        await autoSaveScriptsToDatabase(response.scripts, sessionId);
-
-        // 自动保存脚本到数据库
-        await autoSaveScriptsToDatabase(response.scripts, sessionId);
-      } else {
-        console.log('没有找到生成的脚本，尝试使用分析结果中的内容');
-
-        // 如果API没有返回脚本，尝试从分析结果中获取
-        if (analysisResult && analysisResult.yaml_content) {
-          newScripts.yaml = {
-            format: 'yaml',
-            content: analysisResult.yaml_content,
-            filename: `test_${sessionId.slice(0, 8)}.yaml`,
-            file_path: analysisResult.file_path || ''
-          };
-
-          console.log('使用分析结果中的YAML内容:', newScripts);
-          console.log('从分析结果设置脚本编辑器');
-          setScripts(newScripts);
-          setShowScriptEditor(true);
-          setIsEditingScript({yaml: false, playwright: false});
-          setActiveScriptTab('yaml');
-
-          // 清除分析结果，确保只显示脚本编辑器
-          setAnalysisResult(null);
-          console.log('脚本编辑器应该显示 - 从分析结果');
-
-          toast.success('成功加载YAML脚本！');
-
-          // 自动保存脚本到数据库
-          const scriptDataFromAnalysis = [{
-            format: 'yaml',
-            content: analysisResult.yaml_content,
-            filename: `test_${sessionId.slice(0, 8)}.yaml`
-          }];
-          await autoSaveScriptsToDatabase(scriptDataFromAnalysis, sessionId);
-        } else {
-          console.log('没有找到任何脚本内容');
-          toast.info('分析完成，但没有生成脚本内容');
-        }
-      }
-    } catch (error: any) {
-      console.error('获取生成的脚本失败:', error);
-
-      // 如果API调用失败，尝试使用分析结果中的内容
-      if (analysisResult && analysisResult.yaml_content) {
-        console.log('API调用失败，使用分析结果中的内容');
-        const newScripts: ScriptCollection = {
-          yaml: {
-            format: 'yaml',
-            content: analysisResult.yaml_content,
-            filename: `test_${sessionId.slice(0, 8)}.yaml`,
-            file_path: analysisResult.file_path || ''
-          }
-        };
-
-        setScripts(newScripts);
-        setShowScriptEditor(true);
-        setIsEditingScript({yaml: false, playwright: false});
-        setActiveScriptTab('yaml');
-
-        // 清除分析结果，确保只显示脚本编辑器
-        setAnalysisResult(null);
-
-        toast.success('成功加载YAML脚本！');
-
-        // 自动保存脚本到数据库
-        const scriptDataFallback1 = [{
-          format: 'yaml',
-          content: analysisResult.yaml_content,
-          filename: `test_${sessionId.slice(0, 8)}.yaml`
-        }];
-        await autoSaveScriptsToDatabase(scriptDataFallback1, sessionId);
-
-        // 自动保存脚本到数据库
-        const scriptDataFallback2 = [{
-          format: 'yaml',
-          content: analysisResult.yaml_content,
-          filename: `test_${sessionId.slice(0, 8)}.yaml`
-        }];
-        await autoSaveScriptsToDatabase(scriptDataFallback2, sessionId);
-      } else {
-        toast.error(`获取脚本失败: ${error.message}`);
-      }
-    }
-  };
-
-  const handleStreamingError = (error: string) => {
-    setIsAnalyzing(false);
-    setCurrentSessionId('');
-    // 只有在真正的错误情况下才清除内容，而不是每次都清除
-    // setPreserveStreamingContent(false);
-    toast.error(`分析失败: ${error}`);
-    message.error('Web图片分析失败');
-  };
-
-
-
-  // 保存脚本文件
-  const handleSaveScript = async () => {
-    const currentScript = scripts[activeScriptTab];
-    if (!currentScript) return;
-
-    setIsSavingScript(true);
-    try {
-      const response = await saveScriptFile({
-        content: currentScript.content,
-        filename: currentScript.filename,
-        format: currentScript.format
-      });
-
-      // 更新脚本的文件路径
-      setScripts(prev => ({
-        ...prev,
-        [activeScriptTab]: {
-          ...currentScript,
-          file_path: response.file_path
-        }
-      }));
-
-      // 重置编辑状态
-      setIsEditingScript(prev => ({
-        ...prev,
-        [activeScriptTab]: false
-      }));
-
-      toast.success('脚本保存成功！');
-      message.success(`${currentScript.format.toUpperCase()}脚本已保存`);
-    } catch (error: any) {
-      toast.error(`保存失败: ${error.message}`);
-      message.error('脚本保存失败');
-    } finally {
-      setIsSavingScript(false);
-    }
-  };
-
-
-
-  // 保存脚本到数据库
-  const handleSaveScriptToDatabase = async () => {
-    const currentScript = scripts[activeScriptTab];
-    if (!currentScript || !currentSessionId) {
-      message.error('没有可保存的脚本或会话信息');
-      return;
-    }
-
-    // 弹出对话框让用户输入脚本信息
-    Modal.confirm({
-      title: '保存脚本到数据库',
-      width: 600,
-      content: (
-        <div>
-          <p>将当前脚本保存到数据库中，以便后续管理和执行。</p>
-          <Form layout="vertical">
-            <Form.Item label="脚本名称" required>
-              <Input
-                id="script-name"
-                placeholder="请输入脚本名称"
-                defaultValue={`${currentScript.format.toUpperCase()}测试脚本_${new Date().toLocaleDateString()}`}
-              />
-            </Form.Item>
-            <Form.Item label="脚本描述">
-              <TextArea
-                id="script-description"
-                rows={3}
-                placeholder="请描述这个脚本的功能和用途"
-                defaultValue={`基于AI分析生成的${currentScript.format.toUpperCase()}自动化测试脚本`}
-              />
-            </Form.Item>
-            <Form.Item label="标签">
-              <Input
-                id="script-tags"
-                placeholder="请输入标签，用逗号分隔，如：登录,UI测试,自动化"
-              />
-            </Form.Item>
-          </Form>
-        </div>
-      ),
-      onOk: async () => {
-        const nameInput = document.getElementById('script-name') as HTMLInputElement;
-        const descriptionInput = document.getElementById('script-description') as HTMLTextAreaElement;
-        const tagsInput = document.getElementById('script-tags') as HTMLInputElement;
-
-        const name = nameInput?.value || `${currentScript.format.toUpperCase()}测试脚本_${new Date().toLocaleDateString()}`;
-        const description = descriptionInput?.value || `基于AI分析生成的${currentScript.format.toUpperCase()}自动化测试脚本`;
-        const tagsStr = tagsInput?.value || '';
-        const tags = tagsStr ? tagsStr.split(',').map(tag => tag.trim()).filter(tag => tag) : [];
-
-        try {
-          // 获取测试描述信息
-          const testDescription = form.getFieldValue('test_description') || urlForm.getFieldValue('test_description') || '自动化测试';
-          const additionalContext = form.getFieldValue('additional_context') || urlForm.getFieldValue('additional_context');
-          const sourceUrl = urlForm.getFieldValue('url');
-
-          const response = await saveScriptFromSession({
-            session_id: currentSessionId,
-            name,
-            description,
-            script_format: currentScript.format as 'yaml' | 'playwright',
-            script_type: activeTab === 'image' ? 'image_analysis' : 'url_analysis',
-            test_description: testDescription,
-            content: currentScript.content,
-            additional_context: additionalContext,
-            source_url: sourceUrl,
-            tags
-          });
-
-          toast.success('脚本已保存到数据库！');
-          message.success(`脚本ID: ${response.script_id}`);
-
-          // 可以选择跳转到脚本管理页面
-          Modal.info({
-            title: '保存成功',
-            content: (
-              <div>
-                <p>脚本已成功保存到数据库！</p>
-                <p><strong>脚本ID:</strong> {response.script_id}</p>
-                <p><strong>脚本名称:</strong> {name}</p>
-                <p>您可以在"执行测试"页面中管理和执行此脚本。</p>
-              </div>
-            ),
-            onOk: () => {
-              // 可以选择跳转到执行页面
-              // window.open('/web/execution', '_blank');
-            }
-          });
-
-        } catch (error: any) {
-          toast.error(`保存到数据库失败: ${error.message}`);
-          message.error('保存到数据库失败');
-        }
-      }
-    });
-  };
-
-  // 自动保存脚本到数据库
-  const autoSaveScriptsToDatabase = async (scripts: any[], sessionId: string) => {
-    try {
-      console.log('开始自动保存脚本到数据库:', scripts);
-
-      for (const script of scripts) {
-        // 获取测试描述信息
-        const testDescription = form.getFieldValue('test_description') || urlForm.getFieldValue('test_description') || '自动化测试';
-        const additionalContext = form.getFieldValue('additional_context') || urlForm.getFieldValue('additional_context');
-        const sourceUrl = urlForm.getFieldValue('url');
-
-        // 生成脚本名称
-        const scriptName = `AI生成${script.format.toUpperCase()}脚本_${new Date().toLocaleDateString()}`;
-        const description = `基于AI分析自动生成的${script.format.toUpperCase()}自动化测试脚本`;
-
-        // 确定脚本类型
-        const scriptType = activeTab === 'image' ? 'image_analysis' : 'url_analysis';
-
-        // 自动标签
-        const autoTags = [
-          script.format.toUpperCase(),
-          'AI生成',
-          '自动保存',
-          scriptType === 'image_analysis' ? '图片分析' : 'URL分析'
-        ];
-
-        try {
-          const response = await saveScriptFromSession({
-            session_id: sessionId,
-            name: scriptName,
-            description: description,
-            script_format: script.format as 'yaml' | 'playwright',
-            script_type: scriptType,
-            test_description: testDescription,
-            content: script.content,
-            additional_context: additionalContext,
-            source_url: sourceUrl,
-            tags: autoTags
-          });
-
-          console.log(`脚本自动保存成功: ${response.script_id} - ${scriptName}`);
-
-          // 显示成功通知
-          message.success(`${script.format.toUpperCase()}脚本已自动保存到数据库`);
-
-        } catch (error: any) {
-          console.error(`自动保存脚本失败:`, error);
-          message.warning(`${script.format.toUpperCase()}脚本自动保存失败: ${error.message}`);
-        }
-      }
-
-      // 显示总体成功信息
-      if (scripts.length > 0) {
-        toast.success(`已自动保存${scripts.length}个脚本到数据库！`);
-
-        // 显示提示信息
-        Modal.info({
-          title: '脚本自动保存成功',
-          content: (
-            <div>
-              <p>✅ 已成功将生成的脚本自动保存到数据库！</p>
-              <p><strong>保存数量:</strong> {scripts.length}个脚本</p>
-              <p><strong>脚本格式:</strong> {scripts.map(s => s.format.toUpperCase()).join(', ')}</p>
-              <p>您可以在"执行测试"页面的"脚本管理"中查看和管理这些脚本。</p>
-            </div>
-          ),
-          onOk: () => {
-            // 可以选择跳转到执行页面
-            // window.open('/web/execution', '_blank');
-          }
-        });
-      }
-
-    } catch (error: any) {
-      console.error('自动保存脚本过程中发生错误:', error);
-      toast.error(`自动保存脚本失败: ${error.message}`);
-    }
-  };
-
-  // 执行脚本
-  const handleExecuteScript = async () => {
-    const currentScript = scripts[activeScriptTab];
-    if (!currentScript) return;
-
-    setIsExecutingScript(true);
-    try {
-      let response;
-      if (currentScript.format === 'yaml') {
-        response = await executeYAMLContent({
-          yaml_content: currentScript.content
-        });
-      } else {
-        response = await executePlaywrightScript({
-          script_content: currentScript.content
-        });
-      }
-
-      toast.success('脚本执行已启动！');
-      message.success(`执行ID: ${response.execution_id}`);
-    } catch (error: any) {
-      toast.error(`执行失败: ${error.message}`);
-      message.error('脚本执行失败');
-    } finally {
-      setIsExecutingScript(false);
-    }
-  };
-
-  // 编辑脚本内容
-  const handleScriptContentChange = (value: string) => {
-    const currentScript = scripts[activeScriptTab];
-    if (currentScript) {
-      setScripts(prev => ({
-        ...prev,
-        [activeScriptTab]: {
-          ...currentScript,
-          content: value
-        }
-      }));
-
-      setIsEditingScript(prev => ({
-        ...prev,
-        [activeScriptTab]: true
-      }));
-    }
-  };
-
-  // 下载脚本文件
-  const handleDownloadScript = () => {
-    const currentScript = scripts[activeScriptTab];
-    if (!currentScript) return;
-
-    const blob = new Blob([currentScript.content], {
-      type: currentScript.format === 'yaml' ? 'text/yaml' : 'text/typescript'
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = currentScript.filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast.success(`${currentScript.format.toUpperCase()}文件下载成功！`);
-  };
-
-
-
-  const handleExecuteTest = () => {
-    if (analysisResult) {
-      // 跳转到测试执行页面
-      window.open(`/web/execution/${analysisResult.session_id}`, '_blank');
-    }
-  };
-
-  const handleTestDisplayOrder = () => {
-    const newSessionId = `test-display-order-${Date.now()}`;
-    setCurrentSessionId(newSessionId);
-    setIsAnalyzing(true);
-    // 测试模式下可以重置内容，因为这是用户主动触发的测试
-    setPreserveStreamingContent(false);
-    setTestMode(true);
-  };
+  ];
 
   return (
-    <div className="web-test-creation-container">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        {/* Web平台标题 */}
+    <div className="web-test-creation-v2">
+      <div>
         <Card
-          className="platform-header"
-          style={{
-            marginBottom: 24,
-            background: `linear-gradient(135deg, ${apiConfig.platformColor}15 0%, ${apiConfig.platformColor}05 100%)`,
-            border: `1px solid ${apiConfig.platformColor}30`
-          }}
-        >
-          <Row align="middle" justify="space-between">
-            <Col>
-              <Space size="large">
-                <div style={{ fontSize: '24px', color: apiConfig.platformColor }}>
-                  {apiConfig.platformIcon}
-                </div>
-                <div>
-                  <Title level={3} style={{ margin: 0, color: apiConfig.platformColor }}>
-                    {apiConfig.platformName}平台 - 自动化测试生成引擎
-                  </Title>
-                  <Text type="secondary">
-                    使用AI智能分析生成{apiConfig.platformName}自动化测试脚本
-                  </Text>
-                </div>
-              </Space>
-            </Col>
-            <Col>
-              <Space>
-                <Tag color={apiConfig.platformColor} style={{ fontSize: '14px', padding: '4px 12px' }}>
-                  {apiConfig.platformName}自动化企业级应用
-                </Tag>
-                <Tag color="blue">AI双模型驱动</Tag>
-                <Tag color="blue">Pytest 集成</Tag>
-                <Tag color="green">Playwright 集成</Tag>
-                <Tag color="blue">Puppeteer 集成</Tag>
-                <Tag color="green">MCP服务 支持</Tag>
-              </Space>
-            </Col>
-          </Row>
-        </Card>
-
-        <Row gutter={24} style={{ height: 'calc(100vh - 200px)' }}>
-          <Col span={16} style={{ height: '100%' }}>
-            <Card className="main-card" style={{ height: '100%' }}>
-              <Tabs
-                activeKey={activeTab}
-                onChange={setActiveTab}
-                size="large"
-                tabBarStyle={{ marginBottom: 24 }}
+          title={
+            <Space size="middle">
+              <RobotOutlined style={{ color: '#1890ff', fontSize: '18px' }} />
+              <span style={{
+                fontSize: '18px',
+                fontWeight: 600,
+                color: '#1890ff'
+              }}>
+                AI智能测试创建
+              </span>
+              <Tag color="blue" style={{ borderRadius: '6px', fontWeight: 500 }}>V2.0</Tag>
+            </Space>
+          }
+          extra={
+            <Space>
+              <Button
+                icon={<ClearOutlined />}
+                onClick={handleClear}
+                type="text"
               >
-                <TabPane
-                  tab={
-                    <span>
-                      <UploadOutlined />
-                      图片分析
-                    </span>
-                  }
-                  key="image"
-                >
-                  <Form
-                    form={form}
-                    layout="vertical"
-                    onFinish={handleImageAnalysis}
-                    disabled={isAnalyzing}
+                清空
+              </Button>
+            </Space>
+          }
+        >
+          <Row gutter={[16, 16]} style={{ minHeight: '650px', alignItems: 'stretch' }}>
+            {/* 左侧：输入区域 */}
+            <Col xs={24} lg={14}>
+              <div className="test-creation-section">
+                {/* 标题和操作按钮 */}
+                <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <Text strong style={{
+                      fontSize: 16,
+                      color: '#1e293b',
+                      fontWeight: 600
+                    }}>
+                      📝 测试用例描述
+                    </Text>
+                    <Paragraph type="secondary" style={{
+                      margin: '4px 0 0 0',
+                      fontSize: 13,
+                      color: '#64748b'
+                    }}>
+                      手工编写测试用例或上传界面截图自动生成
+                    </Paragraph>
+                  </div>
+                  <Button
+                    type={showImageUpload ? "primary" : "default"}
+                    icon={<PictureOutlined />}
+                    onClick={toggleImageUpload}
+                    loading={isAnalyzingImage}
+                    size="small"
+                    style={{
+                      borderRadius: '8px',
+                      fontWeight: 500
+                    }}
                   >
-                    <Form.Item
-                      label="上传UI截图"
-                      required
+                    {showImageUpload ? '隐藏' : '图片'}
+                  </Button>
+                </div>
+
+                {/* 图片上传区域（可折叠） */}
+                {showImageUpload && (
+                  <div className="image-upload-section" style={{ marginBottom: 12 }}>
+                    <Upload.Dragger
+                      accept="image/*"
+                      beforeUpload={(file) => {
+                        handleImageUpload(file);
+                        return false;
+                      }}
+                      showUploadList={false}
+                      style={{ marginBottom: 12 }}
                     >
-                      <Upload
-                        beforeUpload={handleImageUpload}
-                        accept="image/*"
-                        maxCount={1}
-                        listType="picture-card"
-                        className="image-uploader"
-                      >
-                        {uploadedFile ? null : (
-                          <div>
-                            <UploadOutlined />
-                            <div style={{ marginTop: 8 }}>点击上传</div>
-                          </div>
-                        )}
-                      </Upload>
-                      <Text type="secondary">
-                        支持 PNG, JPG, JPEG 格式，建议尺寸不超过 5MB
-                      </Text>
-                    </Form.Item>
-
-                    <Form.Item
-                      name="test_description"
-                      label="测试需求描述"
-                      rules={[{ required: true, message: '请输入测试需求描述' }]}
-                    >
-                      <TextArea
-                        rows={3}
-                        placeholder="请详细描述您想要测试的功能，例如：测试用户登录功能，包括正常登录、错误密码、空字段验证等场景"
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      name="additional_context"
-                      label="额外上下文信息"
-                    >
-                      <TextArea
-                        rows={2}
-                        placeholder="可选：提供额外的测试要求或特殊说明"
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label="生成脚本格式"
-                    >
-                      <div>
-                        <Checkbox.Group
-                          value={selectedFormats}
-                          onChange={setSelectedFormats}
-                          style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}
-                        >
-                          <Checkbox value="yaml">YAML</Checkbox>
-                          <Checkbox value="playwright">Playwright</Checkbox>
-                        </Checkbox.Group>
-                        <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: '12px' }}>
-                          可以同时生成多种格式的测试脚本
-                        </Text>
-                      </div>
-                    </Form.Item>
-
-                    {/* 数据库保存设置已移除 - UI测试默认自动保存 */}
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        htmlType="submit"
-                        size="large"
-                        loading={isAnalyzing}
-                        icon={<ThunderboltOutlined />}
-                        block
-                        disabled={selectedFormats.length === 0}
-                      >
-                        {isAnalyzing ? '正在分析图片...' : '开始AI分析'}
-                      </Button>
-                    </Form.Item>
-                  </Form>
-                </TabPane>
-
-                <TabPane
-                  tab={
-                    <span>
-                      <LinkOutlined />
-                      网页分析
-                    </span>
-                  }
-                  key="url"
-                >
-                  <Form
-                    form={urlForm}
-                    layout="vertical"
-                    onFinish={handleURLAnalysis}
-                    disabled={isAnalyzing}
-                  >
-                    <Form.Item
-                      name="url"
-                      label="网页URL"
-                      rules={[
-                        { required: true, message: '请输入网页URL' },
-                        { type: 'url', message: '请输入有效的URL' }
-                      ]}
-                    >
-                      <Input
-                        size="large"
-                        placeholder="https://example.com"
-                        prefix={<LinkOutlined />}
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      name="test_description"
-                      label="测试需求描述"
-                      rules={[{ required: true, message: '请输入测试需求描述' }]}
-                    >
-                      <TextArea
-                        rows={3}
-                        placeholder="请详细描述您想要测试的功能"
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      name="additional_context"
-                      label="额外上下文信息"
-                    >
-                      <TextArea
-                        rows={2}
-                        placeholder="可选：提供额外的测试要求或特殊说明"
-                      />
-                    </Form.Item>
-
-                    <Form.Item
-                      label={
-                        <Space>
-                          <span>抓取方式</span>
-                          <InfoCircleOutlined
-                            style={{ color: '#1890ff' }}
-                            title="选择单页面抓取或多页面递归抓取"
+                      {imagePreview ? (
+                        <div style={{ padding: 16 }}>
+                          <img
+                            src={imagePreview}
+                            alt="预览"
+                            style={{ maxWidth: '100%', maxHeight: 120 }}
                           />
-                        </Space>
-                      }
-                    >
-                      <Select
-                        value={crawlMode}
-                        onChange={setCrawlMode}
-                        size="large"
-                      >
-                        <Option value="single">
-                          <Space>
-                            <GlobalOutlined />
-                            <div>
-                              <div>单页面抓取</div>
-                              <Text type="secondary" style={{ fontSize: '12px' }}>
-                                仅分析指定URL页面，快速生成测试脚本
-                              </Text>
-                            </div>
-                          </Space>
-                        </Option>
-                        <Option value="multi">
-                          <Space>
-                            <NodeIndexOutlined />
-                            <div>
-                              <div>多页面递归抓取 (Crawl4AI)</div>
-                              <Text type="secondary" style={{ fontSize: '12px' }}>
-                                智能抓取整个网站，生成完整测试套件
-                              </Text>
-                            </div>
-                          </Space>
-                        </Option>
-                      </Select>
-                    </Form.Item>
+                          <p style={{ marginTop: 6, color: '#666', fontSize: 12 }}>点击重新上传</p>
+                        </div>
+                      ) : (
+                        <div style={{ padding: 20 }}>
+                          <PictureOutlined style={{ fontSize: 28, color: '#1890ff' }} />
+                          <p style={{ margin: '8px 0 4px 0' }}>点击或拖拽图片上传</p>
+                          <p style={{ color: '#999', fontSize: 11, margin: 0 }}>支持 JPG、PNG、GIF 格式</p>
+                        </div>
+                      )}
+                    </Upload.Dragger>
 
-                    {crawlMode === 'multi' && (
-                      <Card
-                        size="small"
-                        title={
-                          <Space>
-                            <NodeIndexOutlined />
-                            <span>多页面抓取配置</span>
-                          </Space>
-                        }
+                    {isAnalyzingImage && (
+                      <Alert
+                        message="正在分析图片..."
+                        description="AI正在分析您上传的图片并生成测试用例描述，请稍候"
+                        type="info"
+                        showIcon
                         style={{ marginBottom: 16 }}
-                      >
-                        <Row gutter={16}>
-                          <Col span={12}>
-                            <Form.Item
-                              name="max_pages"
-                              label="最大页面数"
-                              initialValue={20}
-                            >
-                              <Select>
-                                <Option value={10}>10页 (小型网站)</Option>
-                                <Option value={20}>20页 (中型网站)</Option>
-                                <Option value={50}>50页 (大型网站)</Option>
-                                <Option value={100}>100页 (完整抓取)</Option>
-                              </Select>
-                            </Form.Item>
-                          </Col>
-                          <Col span={12}>
-                            <Form.Item
-                              name="max_depth"
-                              label="抓取深度"
-                              initialValue={2}
-                            >
-                              <Select>
-                                <Option value={1}>1层 (仅首页链接)</Option>
-                                <Option value={2}>2层 (推荐)</Option>
-                                <Option value={3}>3层 (深度抓取)</Option>
-                                <Option value={4}>4层 (完整抓取)</Option>
-                              </Select>
-                            </Form.Item>
-                          </Col>
-                        </Row>
-
-                        <Form.Item
-                          name="crawl_strategy"
-                          label="抓取策略"
-                          initialValue="bfs"
-                        >
-                          <Select>
-                            <Option value="bfs">广度优先 (BFS) - 发现主要功能页面</Option>
-                            <Option value="dfs">深度优先 (DFS) - 深入探索功能模块</Option>
-                          </Select>
-                        </Form.Item>
-
-                        <Form.Item
-                          name="user_query"
-                          label="内容过滤查询"
-                        >
-                          <Input
-                            placeholder="例如：登录注册功能、购物流程、用户中心"
-                            prefix={<RobotOutlined />}
-                          />
-                          <Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
-                            可选：指定关注的功能模块，AI将重点抓取相关页面
-                          </Text>
-                        </Form.Item>
-                      </Card>
+                      />
                     )}
+                  </div>
+                )}
 
+                {/* 富文本编辑器 */}
+                <div className="text-input-section">
+                  <MDEditor
+                    value={testDescription}
+                    onChange={(val) => setTestDescription(val || '')}
+                    height={showImageUpload ? 200 : 250}
+                    preview="edit"
+                    hideToolbar={false}
+                    data-color-mode="light"
+                  />
+
+                  {/* 快速模板 */}
+                  <div style={{
+                    marginTop: 12,
+                    padding: '12px',
+                    background: 'rgba(248, 250, 252, 0.8)',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(226, 232, 240, 0.6)'
+                  }}>
+                    <Space wrap size="small">
+                      <Text strong style={{ color: '#475569', fontSize: '13px' }}>
+                        💡 模板：
+                      </Text>
+                      {exampleTemplates.map((template, index) => (
+                        <Button
+                          key={index}
+                          size="small"
+                          type="dashed"
+                          onClick={() => setTestDescription(template.description)}
+                          style={{
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            height: '28px',
+                            padding: '0 8px',
+                            borderColor: '#cbd5e1',
+                            color: '#475569'
+                          }}
+                        >
+                          {template.title}
+                        </Button>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+
+                <Divider style={{
+                  margin: '20px 0',
+                  borderColor: 'rgba(226, 232, 240, 0.8)'
+                }} />
+
+                {/* 配置选项 */}
+                <div style={{
+                  background: 'rgba(255, 255, 255, 0.9)',
+                  padding: '16px',
+                  borderRadius: '8px',
+                  border: '1px solid rgba(255, 255, 255, 0.3)',
+                  backdropFilter: 'blur(8px)'
+                }}>
+                  <Text strong style={{
+                    fontSize: '14px',
+                    color: '#1e293b',
+                    marginBottom: '12px',
+                    display: 'block'
+                  }}>
+                    ⚙️ 生成配置
+                  </Text>
+                  <Form form={form} layout="vertical" size="small">
                     <Row gutter={16}>
                       <Col span={12}>
-                        <Form.Item
-                          name="viewport_width"
-                          label="视口宽度"
-                          initialValue={1280}
-                        >
-                          <Select>
-                            <Option value={1280}>1280px (桌面)</Option>
-                            <Option value={768}>768px (平板)</Option>
-                            <Option value={375}>375px (手机)</Option>
+                        <Form.Item label="生成格式" name="generate_formats">
+                          <Select
+                            mode="multiple"
+                            placeholder="选择要生成的脚本格式"
+                            value={selectedFormats}
+                            onChange={setSelectedFormats}
+                          >
+                            <Option value="yaml">YAML (MidScene.js)</Option>
+                            <Option value="playwright">Playwright + MidScene.js</Option>
                           </Select>
                         </Form.Item>
                       </Col>
                       <Col span={12}>
-                        <Form.Item
-                          name="viewport_height"
-                          label="视口高度"
-                          initialValue={960}
-                        >
-                          <Select>
-                            <Option value={960}>960px</Option>
-                            <Option value={1024}>1024px</Option>
-                            <Option value={667}>667px</Option>
-                          </Select>
+                        <Form.Item label="额外上下文" name="additional_context">
+                          <Input.TextArea
+                            placeholder="补充说明或特殊要求（可选）"
+                            rows={2}
+                          />
                         </Form.Item>
                       </Col>
                     </Row>
-
-                    <Form.Item
-                      label="生成脚本格式"
-                    >
-                      <div>
-                        <Checkbox.Group
-                          value={selectedFormats}
-                          onChange={setSelectedFormats}
-                          style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}
-                        >
-                          <Checkbox value="yaml">YAML (MidScene.js)</Checkbox>
-                          <Checkbox value="playwright">Playwright + MidScene.js</Checkbox>
-                        </Checkbox.Group>
-                        <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: '12px' }}>
-                          可以同时生成多种格式的测试脚本
-                        </Text>
-                      </div>
-                    </Form.Item>
-
-                    <Form.Item>
-                      <Button
-                        type="primary"
-                        htmlType="submit"
-                        size="large"
-                        loading={isAnalyzing}
-                        icon={crawlMode === 'multi' ? <NodeIndexOutlined /> : <ThunderboltOutlined />}
-                        block
-                        disabled={selectedFormats.length === 0}
-                      >
-                        {isAnalyzing
-                          ? (crawlMode === 'multi' ? '正在抓取网站并生成测试...' : '正在分析网页...')
-                          : (crawlMode === 'multi' ? '开始多页面抓取分析' : '开始AI分析')
-                        }
-                      </Button>
-                      {crawlMode === 'multi' && (
-                        <Text type="secondary" style={{ display: 'block', marginTop: 8, textAlign: 'center' }}>
-                          多页面抓取可能需要较长时间，请耐心等待
-                        </Text>
-                      )}
-                    </Form.Item>
                   </Form>
-                </TabPane>
-              </Tabs>
-            </Card>
-          </Col>
+                </div>
 
-          <Col span={8} style={{ height: '100%' }}>
-            {/* 流式数据展示组件 */}
-            {!showScriptEditor && (
-              <div style={{ height: '100%' }}>
-                <StreamingDisplay
-                  sessionId={currentSessionId}
-                  isActive={(isAnalyzing && !!currentSessionId) || preserveStreamingContent}
-                  onAnalysisComplete={handleStreamingComplete}
-                  onError={handleStreamingError}
-                  testMode={testMode}
-                />
+                {/* 生成按钮 */}
+                <div style={{
+                  textAlign: 'center',
+                  marginTop: 20,
+                  padding: '16px',
+                  background: 'rgba(255, 255, 255, 0.6)',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(255, 255, 255, 0.3)'
+                }}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<PlayCircleOutlined />}
+                    onClick={handleGenerateFromText}
+                    loading={isGenerating}
+                    disabled={!testDescription.trim() || selectedFormats.length === 0}
+                    style={{
+                      fontSize: '14px',
+                      fontWeight: 600,
+                      height: '44px',
+                      padding: '0 32px',
+                      borderRadius: '10px'
+                    }}
+                  >
+                    {isGenerating ? '🤖 生成中...' : '🚀 生成脚本'}
+                  </Button>
+                </div>
               </div>
-            )}
-
-            {/* 脚本编辑器 */}
-            {showScriptEditor && (
+            </Col>
+            
+            {/* 右侧：分析过程和结果展示区域 */}
+            <Col xs={24} lg={10} style={{ display: 'flex', flexDirection: 'column' }}>
               <Card
                 title={
-                  <Space>
-                    <CodeOutlined />
-                    <span>脚本编辑器</span>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<CloseOutlined />}
-                      onClick={() => {
-                        setShowScriptEditor(false);
-                        setScripts({});
-                        setIsEditingScript({yaml: false, playwright: false});
-                      }}
-                    />
+                  <Space size="middle">
+                    <RobotOutlined style={{ color: '#3b82f6', fontSize: '18px' }} />
+                    <span style={{
+                      fontSize: '16px',
+                      fontWeight: 600,
+                      color: '#1e293b'
+                    }}>
+                      🤖 AI处理过程
+                    </span>
+                    {(isAnalyzingImage || isGenerating) && (
+                      <Tag color="processing" style={{ borderRadius: '8px', fontWeight: 500 }}>
+                        ⚡ 处理中
+                      </Tag>
+                    )}
                   </Space>
                 }
-                style={{ height: '100%' }}
-                bodyStyle={{ height: 'calc(100% - 60px)', padding: '12px' }}
+                bodyStyle={{
+                  padding: '16px',
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+                style={{
+                  height: '100%', // Card占满容器高度
+                  display: 'flex',
+                  flexDirection: 'column'
+                }}
+                size="small"
+                extra={
+                  <Space>
+                    {currentStep && (
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        步骤 {currentStep}
+                      </Text>
+                    )}
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                      {analysisLog ? '处理完成' : '等待处理'}
+                    </Text>
+                  </Space>
+                }
               >
-                {Object.keys(scripts).length > 0 ? (
-                  <Tabs
-                    activeKey={activeScriptTab}
-                    onChange={(key) => setActiveScriptTab(key as 'yaml' | 'playwright')}
-                    size="small"
-                    tabBarExtraContent={
-                      <Space size="small">
-                        <Button
-                          type="primary"
-                          size="small"
-                          icon={<SaveOutlined />}
-                          onClick={handleSaveScript}
-                          loading={isSavingScript}
-                          disabled={!isEditingScript[activeScriptTab]}
-                        >
-                          保存文件
-                        </Button>
-                        <Button
-                          type="default"
-                          size="small"
-                          icon={<SaveOutlined />}
-                          onClick={handleSaveScriptToDatabase}
-                          style={{ backgroundColor: '#52c41a', borderColor: '#52c41a', color: 'white' }}
-                        >
-                          保存到数据库
-                        </Button>
-                        <Button
-                          type="default"
-                          size="small"
-                          icon={<PlayCircleOutlined />}
-                          onClick={handleExecuteScript}
-                          loading={isExecutingScript}
-                        >
-                          执行
-                        </Button>
-                        <Button
-                          type="default"
-                          size="small"
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadScript}
-                        >
-                          下载
-                        </Button>
-                      </Space>
-                    }
-                  >
-                    {scripts.yaml && (
-                      <TabPane tab="YAML" key="yaml">
-                        <div style={{ height: 'calc(100vh - 400px)' }}>
-                          <TextArea
-                            value={scripts.yaml.content}
-                            onChange={(e) => handleScriptContentChange(e.target.value)}
-                            style={{
-                              height: '100%',
-                              fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-                              fontSize: '12px'
-                            }}
-                            placeholder="YAML脚本内容..."
-                          />
-                        </div>
-                        <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
-                          <Text type="secondary">
-                            文件名: {scripts.yaml.filename} |
-                            格式: {scripts.yaml.format.toUpperCase()} |
-                            {isEditingScript.yaml && <span style={{ color: '#faad14' }}> 已修改</span>}
-                          </Text>
-                        </div>
-                      </TabPane>
-                    )}
-                    {scripts.playwright && (
-                      <TabPane tab="Playwright + MidScene.js" key="playwright">
-                        <div style={{ height: 'calc(100vh - 400px)' }}>
-                          <TextArea
-                            value={scripts.playwright.content}
-                            onChange={(e) => handleScriptContentChange(e.target.value)}
-                            style={{
-                              height: '100%',
-                              fontFamily: 'Monaco, Menlo, "Ubuntu Mono", monospace',
-                              fontSize: '12px'
-                            }}
-                            placeholder="Playwright + MidScene.js 脚本内容..."
-                          />
-                        </div>
-                        <div style={{ marginTop: 8, fontSize: '12px', color: '#666' }}>
-                          <Text type="secondary">
-                            文件名: {scripts.playwright.filename} |
-                            格式: {scripts.playwright.format.toUpperCase()} |
-                            {isEditingScript.playwright && <span style={{ color: '#faad14' }}> 已修改</span>}
-                          </Text>
-                        </div>
-                      </TabPane>
-                    )}
-                  </Tabs>
-                ) : (
-                  <div style={{ textAlign: 'center', padding: '50px 0' }}>
-                    <Text type="secondary">暂无脚本内容</Text>
+                {/* 进度条 - 紧凑布局 */}
+                {(isAnalyzingImage || isGenerating) && (
+                  <div style={{ marginBottom: 12, flexShrink: 0 }}>
+                    <Progress
+                      percent={isAnalyzingImage ? analysisProgress : (isGenerating ? 50 : 0)}
+                      size="small"
+                      status={isAnalyzingImage ? (analysisProgress === 100 ? "success" : "active") : "active"}
+                      showInfo={true}
+                      format={(percent) => `${percent}%`}
+                    />
                   </div>
                 )}
+
+                {/* 快速操作区域 */}
+                {analysisLog && (
+                  <div style={{
+                    marginBottom: 12,
+                    padding: '8px 12px',
+                    background: '#f0f8ff',
+                    borderRadius: '6px',
+                    border: '1px solid #d6e4ff',
+                    flexShrink: 0
+                  }}>
+                    <Space size="small">
+                      <Text style={{ fontSize: 12, color: '#1890ff' }}>
+                        📊 {(isAnalyzingImage || isGenerating) ? '处理中...' : '处理完成'}
+                      </Text>
+                      <Button
+                        size="small"
+                        type="link"
+                        style={{ fontSize: 12, padding: '0 4px', height: 'auto' }}
+                        onClick={() => {
+                          const element = document.querySelector('.analysis-log-container');
+                          if (element) element.scrollTop = element.scrollHeight;
+                        }}
+                      >
+                        跳到底部
+                      </Button>
+                      <Button
+                        size="small"
+                        type="link"
+                        style={{ fontSize: 12, padding: '0 4px', height: 'auto' }}
+                        onClick={() => {
+                          setAnalysisLog('');
+                          setCurrentStep('');
+                          setAnalysisProgress(0);
+                        }}
+                      >
+                        清空日志
+                      </Button>
+                    </Space>
+                  </div>
+                )}
+
+                {/* 分析日志 - Markdown渲染 - 确保滚动条显示 */}
+                <div
+                  className="analysis-log-container"
+                  style={{
+                    flex: 1, // 自动填充剩余空间
+                    minHeight: '450px', // 调整最小高度，为快速操作区域留出空间
+                    maxHeight: '600px', // 添加最大高度，确保滚动条显示
+                    overflowY: 'scroll', // 强制显示垂直滚动条
+                    overflowX: 'hidden', // 隐藏水平滚动
+                    backgroundColor: '#f8f9fa',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid #e8e8e8',
+                    fontSize: '14px',
+                    lineHeight: '1.6'
+                  }}
+                >
+                  {analysisLog ? (
+                    <>
+                      <MDEditor.Markdown
+                        source={analysisLog}
+                        style={{
+                          backgroundColor: 'transparent',
+                          fontSize: '13px',
+                          lineHeight: '1.5',
+                          minHeight: 'auto', // 允许内容自然高度
+                          overflow: 'visible' // 让内容正常显示
+                        }}
+                      />
+                      {/* 底部操作区域 - 固定在底部 */}
+                      {!isAnalyzingImage && (
+                        <div style={{
+                          marginTop: 'auto',
+                          paddingTop: '16px',
+                          textAlign: 'center',
+                          borderTop: '1px solid #e8e8e8',
+                          backgroundColor: '#f8f9fa'
+                        }}>
+                          <Button
+                            size="small"
+                            type="text"
+                            onClick={() => {
+                              setAnalysisLog('');
+                              setAnalysisProgress(0);
+                              setCurrentStep('');
+                            }}
+                          >
+                            清空日志
+                          </Button>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="empty-state" style={{
+                      padding: '20px',
+                      textAlign: 'center',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'center',
+                      height: '100%',
+                      minHeight: '400px'
+                    }}>
+                      <div style={{ marginBottom: 24 }}>
+                        <RobotOutlined style={{ fontSize: 48, color: '#d9d9d9', marginBottom: 16 }} />
+                        <Text type="secondary" style={{ fontSize: '16px', display: 'block', marginBottom: 8 }}>
+                          AI分析助手就绪
+                        </Text>
+                        <Text type="secondary" style={{ fontSize: '13px' }}>
+                          上传图片或输入测试描述开始分析
+                        </Text>
+                      </div>
+
+                      <div style={{
+                        background: '#f6f8fa',
+                        padding: '16px',
+                        borderRadius: '8px',
+                        textAlign: 'left',
+                        marginBottom: 16
+                      }}>
+                        <Text strong style={{ fontSize: '13px', color: '#374151' }}>
+                          💡 功能说明：
+                        </Text>
+                        <div style={{ marginTop: 8, fontSize: '12px', color: '#6b7280', lineHeight: '1.6' }}>
+                          • <strong>图片分析</strong>：上传界面截图，AI自动识别元素并生成测试用例<br/>
+                          • <strong>文本描述</strong>：手工编写测试场景，AI生成对应脚本<br/>
+                          • <strong>实时反馈</strong>：分析过程实时显示，包含思考步骤<br/>
+                          • <strong>多格式输出</strong>：支持YAML和Playwright格式
+                        </div>
+                      </div>
+
+                      <div style={{
+                        background: '#fff7e6',
+                        padding: '12px',
+                        borderRadius: '6px',
+                        border: '1px solid #ffd591'
+                      }}>
+                        <Text style={{ fontSize: '12px', color: '#d46b08' }}>
+                          🚀 <strong>快速开始</strong>：点击左侧"图片"按钮上传截图，或直接在文本框中描述测试场景
+                        </Text>
+                      </div>
+
+                      {/* 临时测试内容 - 用于验证滚动条 */}
+                      <div style={{
+                        marginTop: 16,
+                        padding: '12px',
+                        background: '#f0f0f0',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        color: '#666'
+                      }}>
+                        <Text style={{ fontSize: '11px', color: '#999' }}>
+                          测试滚动内容区域 - 当内容超出容器高度时，右侧应显示滚动条
+                          <br/>这是第2行测试内容
+                          <br/>这是第3行测试内容
+                          <br/>这是第4行测试内容
+                          <br/>这是第5行测试内容
+                          <br/>这是第6行测试内容
+                          <br/>这是第7行测试内容
+                          <br/>这是第8行测试内容
+                          <br/>这是第9行测试内容
+                          <br/>这是第10行测试内容
+                          <br/>滚动条应该在右侧显示
+                        </Text>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </Card>
-            )}
-          </Col>
-        </Row>
-      </motion.div>
+            </Col>
+          </Row>
+        </Card>
+      </div>
     </div>
   );
 };

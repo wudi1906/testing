@@ -1,0 +1,328 @@
+/* 页面管理样式 */
+.page-management {
+  padding: 24px;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.page-management .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.page-management .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.page-management .ant-progress-line {
+  margin: 0;
+}
+
+.page-management .ant-badge {
+  font-weight: 500;
+}
+
+.page-management .ant-upload-drag {
+  border: 2px dashed #d9d9d9;
+  border-radius: 8px;
+  background: #fafafa;
+  transition: all 0.3s ease;
+}
+
+.page-management .ant-upload-drag:hover {
+  border-color: #1890ff;
+  background: #f0f8ff;
+}
+
+.page-management .ant-upload-drag-icon {
+  margin-bottom: 16px;
+}
+
+.page-management .ant-upload-text {
+  font-size: 16px;
+  font-weight: 500;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.page-management .ant-upload-hint {
+  font-size: 14px;
+  color: #999;
+}
+
+.page-management .element-card {
+  margin-bottom: 8px;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.page-management .element-card:hover {
+  border-color: #1890ff;
+  box-shadow: 0 2px 8px rgba(24, 144, 255, 0.1);
+}
+
+.page-management .element-details {
+  background: #f5f5f5;
+  padding: 8px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.page-management .statistics-card {
+  text-align: center;
+  padding: 16px;
+}
+
+.page-management .statistics-card .ant-statistic-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.page-management .statistics-card .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.page-management .page-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.page-management .page-header h2 {
+  color: white;
+  margin: 0;
+}
+
+.page-management .page-header .ant-typography {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.page-management .status-tag {
+  font-weight: 500;
+  border-radius: 4px;
+}
+
+.page-management .action-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.page-management .action-buttons .ant-btn {
+  border-radius: 4px;
+}
+
+.page-management .drawer-content {
+  padding: 0;
+}
+
+.page-management .drawer-content .ant-card {
+  margin-bottom: 16px;
+}
+
+.page-management .drawer-content .ant-descriptions-item-label {
+  font-weight: 600;
+  color: #333;
+}
+
+.page-management .element-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.page-management .element-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.page-management .element-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.page-management .element-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.page-management .element-list::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+.page-management .upload-modal .ant-form-item-label {
+  font-weight: 600;
+}
+
+.page-management .upload-modal .ant-input,
+.page-management .upload-modal .ant-input:focus {
+  border-radius: 6px;
+}
+
+.page-management .upload-modal .ant-btn {
+  border-radius: 6px;
+}
+
+.page-management .table-container {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.page-management .table-container .ant-table {
+  border-radius: 0;
+}
+
+.page-management .empty-state {
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.page-management .empty-state .ant-empty-description {
+  color: #999;
+  font-size: 14px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .page-management {
+    padding: 16px;
+  }
+  
+  .page-management .page-header {
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  
+  .page-management .statistics-card {
+    padding: 12px;
+  }
+  
+  .page-management .ant-table-wrapper {
+    overflow-x: auto;
+  }
+  
+  .page-management .action-buttons {
+    flex-direction: column;
+  }
+  
+  .page-management .action-buttons .ant-btn {
+    width: 100%;
+  }
+}
+
+/* 动画效果 */
+.page-management .ant-card {
+  transition: all 0.3s ease;
+}
+
+.page-management .ant-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.page-management .ant-btn {
+  transition: all 0.3s ease;
+}
+
+.page-management .ant-btn:hover {
+  transform: translateY(-1px);
+}
+
+.page-management .ant-table-row {
+  transition: all 0.3s ease;
+}
+
+.page-management .ant-table-row:hover {
+  background-color: #f5f8ff;
+}
+
+/* 加载状态 */
+.page-management .loading-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.page-management .loading-spinner {
+  font-size: 24px;
+  color: #1890ff;
+}
+
+/* 状态指示器 */
+.page-management .status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.page-management .status-indicator .ant-badge-status-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* 进度条样式 */
+.page-management .confidence-progress {
+  margin: 0;
+}
+
+.page-management .confidence-progress .ant-progress-bg {
+  border-radius: 4px;
+}
+
+/* 标签样式 */
+.page-management .element-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.page-management .element-tags .ant-tag {
+  margin: 0;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* 详情展开样式 */
+.page-management .element-details-toggle {
+  cursor: pointer;
+  color: #1890ff;
+  font-size: 12px;
+  user-select: none;
+}
+
+.page-management .element-details-toggle:hover {
+  text-decoration: underline;
+}
+
+.page-management .element-details-content {
+  margin-top: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+}

@@ -1,0 +1,273 @@
+/* 测试用例解析组件样式 */
+.test-case-parser {
+  padding: 20px;
+}
+
+.test-case-parser .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.test-case-parser .ant-card-head {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px 8px 0 0;
+}
+
+.test-case-parser .ant-card-head-title {
+  color: white;
+  font-weight: 600;
+}
+
+.test-case-parser .ant-card-extra {
+  color: white;
+}
+
+.test-case-parser .ant-card-extra .ant-btn {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.test-case-parser .ant-card-extra .ant-btn:hover {
+  border-color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* 表单样式 */
+.test-case-parser .ant-form-item-label > label {
+  font-weight: 600;
+  color: #333;
+}
+
+.test-case-parser .ant-input,
+.test-case-parser .ant-select-selector {
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
+  transition: all 0.3s ease;
+}
+
+.test-case-parser .ant-input:focus,
+.test-case-parser .ant-select-focused .ant-select-selector {
+  border-color: #722ed1;
+  box-shadow: 0 0 0 2px rgba(114, 46, 209, 0.1);
+}
+
+.test-case-parser .ant-input::placeholder {
+  color: #bfbfbf;
+  font-style: italic;
+}
+
+/* 文本域样式 */
+.test-case-parser textarea.ant-input {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 300px;
+}
+
+/* 按钮样式 */
+.test-case-parser .ant-btn-primary {
+  background: linear-gradient(135deg, #722ed1 0%, #9254de 100%);
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  height: 40px;
+  padding: 0 24px;
+  transition: all 0.3s ease;
+}
+
+.test-case-parser .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #531dab 0%, #722ed1 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(114, 46, 209, 0.3);
+}
+
+.test-case-parser .ant-btn-primary:active {
+  transform: translateY(0);
+}
+
+/* 进度条样式 */
+.test-case-parser .ant-progress-line {
+  margin-bottom: 8px;
+}
+
+.test-case-parser .ant-progress-bg {
+  background: linear-gradient(90deg, #722ed1 0%, #9254de 100%);
+}
+
+/* 日志区域样式 */
+.test-case-parser .parse-log {
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.test-case-parser .parse-log pre {
+  margin: 0;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #24292e;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 滚动条样式 */
+.test-case-parser .parse-log::-webkit-scrollbar {
+  width: 6px;
+}
+
+.test-case-parser .parse-log::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.test-case-parser .parse-log::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.test-case-parser .parse-log::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* 结果区域样式 */
+.test-case-parser .parse-result {
+  margin-top: 20px;
+}
+
+.test-case-parser .ant-alert {
+  border-radius: 6px;
+  border: none;
+}
+
+.test-case-parser .ant-alert-success {
+  background: linear-gradient(135deg, #f6ffed 0%, #f0f9ff 100%);
+  border-left: 4px solid #52c41a;
+}
+
+/* 标签样式 */
+.test-case-parser .ant-tag {
+  border-radius: 4px;
+  font-weight: 500;
+  padding: 2px 8px;
+}
+
+.test-case-parser .ant-tag-purple {
+  background: linear-gradient(135deg, #f9f0ff 0%, #efdbff 100%);
+  border-color: #d3adf7;
+  color: #722ed1;
+}
+
+.test-case-parser .ant-tag-green {
+  background: linear-gradient(135deg, #f6ffed 0%, #e6f7ff 100%);
+  border-color: #95de64;
+  color: #389e0d;
+}
+
+.test-case-parser .ant-tag-blue {
+  background: linear-gradient(135deg, #e6f7ff 0%, #f0f5ff 100%);
+  border-color: #91d5ff;
+  color: #1890ff;
+}
+
+/* 分割线样式 */
+.test-case-parser .ant-divider {
+  border-color: #e8e8e8;
+  margin: 24px 0 16px 0;
+}
+
+.test-case-parser .ant-divider-inner-text {
+  font-weight: 600;
+  color: #595959;
+  background: white;
+  padding: 0 16px;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .test-case-parser {
+    padding: 10px;
+  }
+  
+  .test-case-parser .ant-card-extra {
+    margin-top: 8px;
+  }
+  
+  .test-case-parser .ant-card-extra .ant-btn {
+    margin-bottom: 8px;
+  }
+  
+  .test-case-parser textarea.ant-input {
+    min-height: 200px;
+    font-size: 14px;
+  }
+  
+  .test-case-parser .ant-btn-primary {
+    width: 100%;
+    margin-bottom: 12px;
+  }
+}
+
+/* 加载状态样式 */
+.test-case-parser .parsing-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #f0f2f5;
+  border-radius: 6px;
+  border-left: 4px solid #722ed1;
+}
+
+.test-case-parser .parsing-status .ant-spin {
+  margin-right: 8px;
+}
+
+/* 动画效果 */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.test-case-parser .parse-log,
+.test-case-parser .parse-result {
+  animation: fadeInUp 0.3s ease-out;
+}
+
+/* 高亮效果 */
+.test-case-parser .highlight-success {
+  background: linear-gradient(135deg, #f6ffed 0%, #e6f7ff 100%);
+  border: 1px solid #b7eb8f;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+
+.test-case-parser .highlight-info {
+  background: linear-gradient(135deg, #e6f7ff 0%, #f0f5ff 100%);
+  border: 1px solid #91d5ff;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+
+.test-case-parser .highlight-warning {
+  background: linear-gradient(135deg, #fffbe6 0%, #fff7e6 100%);
+  border: 1px solid #ffd666;
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}

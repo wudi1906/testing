@@ -11,6 +11,8 @@ import TestExecution from './pages/Web/TestExecution/TestExecution';
 import UnifiedTestExecution from './pages/Web/TestExecution/UnifiedTestExecution';
 import TestResults from './pages/Web/TestResults/TestResults';
 import TestReports from './pages/Web/TestReports/TestReports';
+import PageManagement from './pages/Web/PageManagement/PageManagement';
+import WebModule from './pages/Web';
 import Settings from './pages/Settings/Settings';
 import PlaceholderPage from './components/Common/PlaceholderPage';
 import LoadingSpinner from './components/Common/LoadingSpinner';
@@ -40,7 +42,8 @@ const App: React.FC = () => {
               <Route path="test/reports" element={<TestReports />} />
 
               {/* Web自动化路由 */}
-              <Route path="web/*" element={<TestCreation />} />
+              <Route path="web/pages" element={<PageManagement />} />
+              <Route path="web/*" element={<WebModule />} />
 
               {/* Android自动化路由 */}
               <Route path="android/create" element={<TestCreation />} />
