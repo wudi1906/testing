@@ -20,3 +20,5 @@ npx playwright test e2e/xxx.spec.ts
 http://bbs.huice.com
 电商项目地址：
 http://appfront.huice.com
+
+# 特别注意：使用上述测试项目必须关闭魔法
