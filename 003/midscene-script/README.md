@@ -12,3 +12,11 @@ npx playwright test e2e/xxx.spec.ts
 
 2、直接在脚本中点击test前的运行按钮小图标
 
+# 测试项目环境部署
+将 hosts 文件放在 C:\Windows\System32\drivers\etc 目录下
+
+# 测试项目地址
+论坛项目地址：
+http://bbs.huice.com
+电商项目地址：
+http://appfront.huice.com
