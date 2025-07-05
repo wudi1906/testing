@@ -33,11 +33,15 @@ import {
   ExclamationCircleOutlined,
   FolderOpenOutlined,
   UploadOutlined,
-  EyeOutlined,
-  DeleteOutlined
+  EditOutlined,
+  DeleteOutlined,
+  FileSearchOutlined,
+  LoadingOutlined,
+  SyncOutlined
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
+import CodeEditor from '../../../../components/CodeEditor';
 
 import {
   // 数据库脚本管理API
@@ -49,23 +53,12 @@ import {
   executeScriptFromDB,
   batchExecuteScriptsFromDB,
   uploadScriptFile,
-  // 文件系统脚本执行API
-  getAvailableScripts,
-  getWorkspaceInfo,
-  executeSingleScript,
-  executeBatchScripts
+  syncScriptsToWorkspace
 } from '../../../../services/api';
 
 const { Search } = Input;
 const { Option } = Select;
 const { Text, Title } = Typography;
-
-interface FileSystemScript {
-  name: string;
-  path: string;
-  size: number;
-  modified: string;
-}
 
 interface DatabaseScript {
   id: string;
@@ -82,34 +75,26 @@ interface DatabaseScript {
   execution_count: number;
 }
 
-type Script = FileSystemScript | DatabaseScript;
-
-// 类型守卫函数
-const isDatabaseScript = (script: Script): script is DatabaseScript => {
-  return 'id' in script;
-};
-
-const isFileSystemScript = (script: Script): script is FileSystemScript => {
-  return 'path' in script;
-};
-
-interface WorkspaceInfo {
-  path: string;
-  exists: boolean;
-  e2e_dir_exists: boolean;
-  package_json_exists: boolean;
-  total_scripts: number;
-  recent_scripts: Script[];
+interface ScriptExecutionStatus {
+  sessionId: string;
+  status: 'running' | 'completed' | 'failed';
+  startTime: string;
+  endTime?: string;
+  hasReport?: boolean;
 }
 
 interface ScriptManagementTabProps {
   onExecutionStart: (sessionId: string, scriptName: string) => void;
   onBatchExecutionStart: (sessionId: string, scriptNames: string[]) => void;
+  executionCount?: number; // 用于触发刷新
+  onExecutionComplete?: (sessionId: string, scriptName: string) => void; // 新增执行完成回调
 }
 
 const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
   onExecutionStart,
-  onBatchExecutionStart
+  onBatchExecutionStart,
+  executionCount,
+  onExecutionComplete
 }) => {
   const [scriptSource, setScriptSource] = useState<'database' | 'filesystem'>('database');
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -119,8 +104,14 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
   const [selectedScripts, setSelectedScripts] = useState<string[]>([]);
   const [searchText, setSearchText] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'modified' | 'size'>('modified');
+  const [scriptExecutionStatuses, setScriptExecutionStatuses] = useState<Record<string, ScriptExecutionStatus>>({});
   const [showExecutionConfig, setShowExecutionConfig] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingScript, setEditingScript] = useState<DatabaseScript | null>(null);
+  const [editorContent, setEditorContent] = useState('');
+  const [isSavingScript, setIsSavingScript] = useState(false);
+  const [isSyncingWorkspace, setIsSyncingWorkspace] = useState(false);
   const [executionConfig, setExecutionConfig] = useState({
     base_url: '',
     headed: false,
@@ -128,6 +119,9 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     parallel_execution: false,
     stop_on_failure: true
   });
+
+  // 表单实例
+  const [editForm] = Form.useForm();
 
   // 加载数据库脚本
   const loadDatabaseScripts = useCallback(async () => {
@@ -190,47 +184,35 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     }
   }, [scriptSource, loadDatabaseScripts, loadFileSystemScripts]);
 
-  // 查看脚本详情
-  const handleViewScript = async (script: DatabaseScript) => {
+  // 更新脚本执行状态
+  const updateScriptExecutionStatus = useCallback((scriptId: string, status: Partial<ScriptExecutionStatus>) => {
+    setScriptExecutionStatuses(prev => ({
+      ...prev,
+      [scriptId]: { ...prev[scriptId], ...status } as ScriptExecutionStatus
+    }));
+  }, []);
+
+  // 检查脚本报告状态
+  const checkScriptReport = useCallback(async (scriptId: string): Promise<boolean> => {
     try {
-      const scriptDetail = await getScript(script.id);
-      Modal.info({
-        title: `脚本详情 - ${script.name}`,
-        content: (
-          <div style={{ maxHeight: '400px', overflow: 'auto' }}>
-            <div style={{ marginBottom: 16 }}>
-              <Text strong>描述：</Text>
-              <div>{script.description}</div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <Text strong>标签：</Text>
-              <div>
-                {script.tags.map(tag => (
-                  <Tag key={tag} style={{ margin: '2px' }}>{tag}</Tag>
-                ))}
-              </div>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              <Text strong>脚本内容：</Text>
-              <pre style={{
-                backgroundColor: '#f5f5f5',
-                padding: 12,
-                borderRadius: 4,
-                fontSize: 12,
-                maxHeight: 300,
-                overflow: 'auto'
-              }}>
-                {script.content}
-              </pre>
-            </div>
-          </div>
-        ),
-        width: 800
-      });
-    } catch (error: any) {
-      message.error(`获取脚本详情失败: ${error.message}`);
+      const checkUrl = `/api/v1/web/reports/script/${scriptId}/latest`;
+      const response = await fetch(checkUrl);
+      return response.ok;
+    } catch (error) {
+      console.error('检查报告状态失败:', error);
+      return false;
     }
-  };
+  }, []);
+
+  // 监听执行完成，刷新脚本列表
+  useEffect(() => {
+    if (executionCount && executionCount > 0) {
+      console.log('检测到执行完成，刷新脚本列表');
+      loadScripts();
+    }
+  }, [executionCount, loadScripts]);
+
+
 
   // 删除脚本
   const handleDeleteScript = async (scriptId: string) => {
@@ -254,6 +236,34 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     });
   };
 
+  // 查看最新测试报告
+  const handleViewReport = async (script: Script) => {
+    try {
+      const scriptId = isDatabaseScript(script) ? script.id : script.name;
+
+      // 先检查是否有报告
+      const hasReport = await checkScriptReport(scriptId);
+
+      if (hasReport) {
+        // 有报告，直接打开
+        const reportUrl = `/api/v1/web/reports/view/script/${scriptId}`;
+        window.open(reportUrl, '_blank');
+
+        // 更新本地状态
+        updateScriptExecutionStatus(scriptId, { hasReport: true });
+      } else {
+        // 没有报告
+        message.info(`脚本 "${script.name || scriptId}" 还没有执行过，暂无测试报告`);
+
+        // 更新本地状态
+        updateScriptExecutionStatus(scriptId, { hasReport: false });
+      }
+    } catch (error) {
+      console.error('查看报告失败:', error);
+      message.error('查看报告失败，请检查网络连接');
+    }
+  };
+
   // 处理文件上传
   const handleUploadScript = async (values: any) => {
     try {
@@ -273,6 +283,63 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     } catch (error: any) {
       message.error(`上传脚本失败: ${error.message}`);
       toast.error('上传失败');
+    }
+  };
+
+  // 编辑脚本
+  const handleEditScript = async (script: DatabaseScript) => {
+    try {
+      const scriptDetail = await getScript(script.id);
+      setEditingScript(scriptDetail);
+      setEditorContent(scriptDetail.content || '');
+      editForm.setFieldsValue({
+        name: scriptDetail.name,
+        description: scriptDetail.description,
+        category: scriptDetail.category,
+        tags: scriptDetail.tags,
+        priority: scriptDetail.priority
+      });
+      setShowEditModal(true);
+    } catch (error: any) {
+      message.error(`获取脚本详情失败: ${error.message}`);
+    }
+  };
+
+  // 保存脚本编辑
+  const handleSaveScript = async (values: any) => {
+    if (!editingScript || isSavingScript) return;
+
+    setIsSavingScript(true);
+    try {
+      const updateData = {
+        name: values.name,
+        description: values.description,
+        content: editorContent, // 使用编辑器的内容
+        category: values.category,
+        tags: values.tags || [],
+        priority: values.priority || 1
+      };
+
+      await updateScript(editingScript.id, updateData);
+
+      message.success('脚本更新成功');
+      toast.success(`脚本 ${values.name} 更新成功`);
+
+      // 确保对话框关闭和状态重置
+      setShowEditModal(false);
+      setEditingScript(null);
+      setEditorContent('');
+      editForm.resetFields();
+
+      // 重新加载列表
+      await loadScripts();
+    } catch (error: any) {
+      console.error('更新脚本失败:', error);
+      message.error(`更新脚本失败: ${error.message}`);
+      toast.error('更新失败');
+      // 发生错误时不关闭对话框，让用户可以重试
+    } finally {
+      setIsSavingScript(false);
     }
   };
 
@@ -304,6 +371,16 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
   // 执行单个脚本
   const handleExecuteScript = async (script: Script) => {
     try {
+      const scriptId = isDatabaseScript(script) ? script.id : script.name;
+
+      // 更新执行状态为运行中
+      updateScriptExecutionStatus(scriptId, {
+        sessionId: '',
+        status: 'running',
+        startTime: new Date().toISOString(),
+        hasReport: false
+      });
+
       if (isDatabaseScript(script)) {
         // 执行数据库脚本
         const result = await executeScriptFromDB(script.id, {
@@ -313,6 +390,9 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
             timeout: executionConfig.timeout
           }
         });
+
+        // 更新会话ID
+        updateScriptExecutionStatus(scriptId, { sessionId: result.execution_id });
 
         toast.success(`脚本 ${script.name} 开始执行`);
         message.success(`执行ID: ${result.execution_id}`);
@@ -334,16 +414,63 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
           ...config
         });
 
+        // 更新会话ID
+        updateScriptExecutionStatus(scriptId, { sessionId: result.session_id });
+
         toast.success(`脚本 ${script.name} 开始执行`);
         message.success(`执行会话已创建: ${result.session_id}`);
 
         onExecutionStart(result.session_id, script.name);
       }
     } catch (error: any) {
+      const scriptId = isDatabaseScript(script) ? script.id : script.name;
+
+      // 更新执行状态为失败
+      updateScriptExecutionStatus(scriptId, {
+        status: 'failed',
+        endTime: new Date().toISOString()
+      });
+
       toast.error(`执行失败: ${error.message}`);
-      message.error(`脚本 ${isDatabaseScript(script) ? script.name : script.name} 执行失败`);
+      message.error(`脚本 ${script.name} 执行失败`);
     }
   };
+
+  // 处理脚本执行完成
+  const handleScriptExecutionComplete = useCallback(async (sessionId: string, scriptName: string) => {
+    console.log(`脚本执行完成: ${scriptName}, 会话ID: ${sessionId}`);
+
+    // 找到对应的脚本
+    const script = scripts.find(s =>
+      scriptExecutionStatuses[s.id]?.sessionId === sessionId
+    );
+
+    if (script) {
+      const scriptId = script.id;
+
+      // 检查是否有报告生成
+      const hasReport = await checkScriptReport(scriptId);
+
+      // 更新执行状态为完成
+      updateScriptExecutionStatus(scriptId, {
+        status: 'completed',
+        endTime: new Date().toISOString(),
+        hasReport
+      });
+
+      toast.success(`脚本 ${scriptName} 执行完成`);
+
+      // 通知父组件
+      if (onExecutionComplete) {
+        onExecutionComplete(sessionId, scriptName);
+      }
+
+      // 刷新脚本列表以获取最新的执行次数等信息
+      setTimeout(() => {
+        loadScripts();
+      }, 1000);
+    }
+  }, [scripts, scriptExecutionStatuses, checkScriptReport, updateScriptExecutionStatus, onExecutionComplete, loadScripts]);
 
   // 批量执行脚本
   const handleBatchExecute = async () => {
@@ -398,13 +525,23 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     }
   };
 
-  // 格式化文件大小
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  // 同步脚本到工作空间
+  const handleSyncWorkspace = async () => {
+    try {
+      setIsSyncingWorkspace(true);
+      const result = await syncScriptsToWorkspace();
+
+      toast.success(`工作空间同步完成: 成功 ${result.synced_count} 个，失败 ${result.failed_count} 个`);
+      message.success(`同步完成，共处理 ${result.total_scripts} 个脚本`);
+
+      // 刷新脚本列表
+      await loadScripts();
+    } catch (error: any) {
+      toast.error(`同步工作空间失败: ${error.message}`);
+      message.error('同步工作空间失败');
+    } finally {
+      setIsSyncingWorkspace(false);
+    }
   };
 
   // 格式化修改时间
@@ -425,27 +562,55 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     }
   };
 
+  // 获取脚本执行状态
+  const getScriptExecutionStatus = (script: Script): ScriptExecutionStatus | undefined => {
+    const scriptId = isDatabaseScript(script) ? script.id : script.name;
+    return scriptExecutionStatuses[scriptId];
+  };
+
+  // 获取状态标签
+  const getStatusTag = (status: string) => {
+    switch (status) {
+      case 'running':
+        return <Tag color="processing" icon={<LoadingOutlined spin />}>执行中</Tag>;
+      case 'completed':
+        return <Tag color="success" icon={<CheckCircleOutlined />}>已完成</Tag>;
+      case 'failed':
+        return <Tag color="error" icon={<ExclamationCircleOutlined />}>失败</Tag>;
+      default:
+        return null;
+    }
+  };
+
   // 表格列定义
   const columns = [
     {
       title: '脚本名称',
       dataIndex: 'name',
       key: 'name',
-      render: (name: string, record: Script) => (
-        <Space>
-          <FileTextOutlined style={{ color: '#1890ff' }} />
-          <div>
-            <Text strong>{name}</Text>
-            {isDatabaseScript(record) && (
-              <div>
-                <Tag size="small" color="blue">{record.script_format}</Tag>
-                <Tag size="small" color="green">{record.script_type}</Tag>
-                {record.category && <Tag size="small">{record.category}</Tag>}
-              </div>
-            )}
-          </div>
-        </Space>
-      ),
+      render: (name: string, record: Script) => {
+        const executionStatus = getScriptExecutionStatus(record);
+        return (
+          <Space>
+            <FileTextOutlined style={{ color: '#1890ff' }} />
+            <div>
+              <Text strong>{name}</Text>
+              {isDatabaseScript(record) && (
+                <div>
+                  <Tag size="small" color="blue">{record.script_format}</Tag>
+                  <Tag size="small" color="green">{record.script_type}</Tag>
+                  {record.category && <Tag size="small">{record.category}</Tag>}
+                </div>
+              )}
+              {executionStatus && (
+                <div style={{ marginTop: 4 }}>
+                  {getStatusTag(executionStatus.status)}
+                </div>
+              )}
+            </div>
+          </Space>
+        );
+      },
     },
     {
       title: scriptSource === 'database' ? '描述' : '文件大小',
@@ -490,40 +655,67 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
     {
       title: '操作',
       key: 'actions',
-      render: (_: any, record: Script) => (
-        <Space>
-          <Button
-            type="primary"
-            size="small"
-            icon={<PlayCircleOutlined />}
-            onClick={() => handleExecuteScript(record)}
-          >
-            执行
-          </Button>
-          {isDatabaseScript(record) && (
-            <>
-              <Button
-                size="small"
-                icon={<EyeOutlined />}
-                onClick={() => handleViewScript(record)}
-              >
-                查看
-              </Button>
-              <Button
-                size="small"
-                danger
-                icon={<DeleteOutlined />}
-                onClick={() => handleDeleteScript(record.id)}
-              >
-                删除
-              </Button>
-            </>
-          )}
-        </Space>
-      ),
-      width: scriptSource === 'database' ? 200 : 100,
+      render: (_: any, record: Script) => {
+        const executionStatus = getScriptExecutionStatus(record);
+        const isRunning = executionStatus?.status === 'running';
+        const hasReport = executionStatus?.hasReport;
+
+        return (
+          <Space>
+            <Button
+              type="primary"
+              size="small"
+              icon={isRunning ? <LoadingOutlined spin /> : <PlayCircleOutlined />}
+              onClick={() => handleExecuteScript(record)}
+              disabled={isRunning}
+              loading={isRunning}
+            >
+              {isRunning ? '执行中' : '执行'}
+            </Button>
+            <Button
+              size="small"
+              icon={<FileSearchOutlined />}
+              onClick={() => handleViewReport(record)}
+              title="查看最新测试报告"
+              type={hasReport ? 'default' : 'dashed'}
+              disabled={false} // 始终可点击，让用户知道是否有报告
+            >
+              报告
+            </Button>
+            <Button
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEditScript(record)}
+              disabled={isRunning}
+            >
+              编辑
+            </Button>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() => handleDeleteScript(record.id)}
+              disabled={isRunning}
+            >
+              删除
+            </Button>
+          </Space>
+        );
+      },
+      width: 220,
     },
   ];
+
+  // 暴露执行完成处理函数给父组件
+  useEffect(() => {
+    // 将处理函数挂载到组件实例上，供父组件调用
+    (window as any).handleScriptExecutionComplete = handleScriptExecutionComplete;
+
+    return () => {
+      // 清理
+      delete (window as any).handleScriptExecutionComplete;
+    };
+  }, [handleScriptExecutionComplete]);
 
   return (
     <div className="script-management-tab">
@@ -636,14 +828,25 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
                     配置
                   </Button>
                   {scriptSource === 'database' && (
-                    <Button
-                      icon={<UploadOutlined />}
-                      onClick={() => setShowUploadModal(true)}
-                      size="small"
-                      type="primary"
-                    >
-                      上传
-                    </Button>
+                    <>
+                      <Button
+                        icon={<UploadOutlined />}
+                        onClick={() => setShowUploadModal(true)}
+                        size="small"
+                        type="primary"
+                      >
+                        上传
+                      </Button>
+                      <Button
+                        icon={<SyncOutlined />}
+                        onClick={handleSyncWorkspace}
+                        loading={isSyncingWorkspace}
+                        size="small"
+                        title="同步所有脚本到工作空间"
+                      >
+                        同步工作空间
+                      </Button>
+                    </>
                   )}
                 </Space>
               </Col>
@@ -890,6 +1093,108 @@ const ScriptManagementTab: React.FC<ScriptManagementTabProps> = ({
                 上传脚本
               </Button>
               <Button onClick={() => setShowUploadModal(false)}>
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑脚本模态框 */}
+      <Modal
+        title={`编辑脚本 - ${editingScript?.name || ''}`}
+        open={showEditModal}
+        onCancel={() => {
+          setShowEditModal(false);
+          setEditingScript(null);
+          setEditorContent('');
+          editForm.resetFields();
+        }}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleSaveScript}
+        >
+          <Form.Item
+            name="name"
+            label="脚本名称"
+            rules={[{ required: true, message: '请输入脚本名称' }]}
+          >
+            <Input placeholder="输入脚本名称" />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="脚本描述"
+            rules={[{ required: true, message: '请输入脚本描述' }]}
+          >
+            <Input.TextArea rows={3} placeholder="输入脚本描述" />
+          </Form.Item>
+
+          <Form.Item
+            label="脚本内容"
+            required
+          >
+            <CodeEditor
+              value={editorContent}
+              onChange={setEditorContent}
+              language={editingScript?.script_format === 'yaml' ? 'yaml' : 'typescript'}
+              height={400}
+              placeholder={editingScript?.script_format === 'yaml'
+                ? '# 请输入YAML格式的测试脚本\n- action: navigate\n  target: "https://example.com"'
+                : '// 请输入TypeScript格式的Playwright测试脚本\nimport { test, expect } from "@playwright/test";\n\ntest("测试用例", async ({ page }) => {\n  await page.goto("https://example.com");\n});'
+              }
+            />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="category" label="分类">
+                <Input placeholder="输入分类（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="priority" label="优先级">
+                <Select placeholder="选择优先级">
+                  <Option value={1}>低</Option>
+                  <Option value={2}>中</Option>
+                  <Option value={3}>高</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="tags" label="标签">
+            <Select
+              mode="tags"
+              placeholder="输入标签（可选）"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={isSavingScript}
+                disabled={isSavingScript}
+              >
+                {isSavingScript ? '保存中...' : '保存更改'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingScript(null);
+                  setEditorContent('');
+                  editForm.resetFields();
+                }}
+                disabled={isSavingScript}
+              >
                 取消
               </Button>
             </Space>

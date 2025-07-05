@@ -21,7 +21,6 @@ from app.core.messages.web import PlaywrightExecutionRequest
 from app.core.agents.base import BaseAgent
 from app.core.types import TopicTypes, AgentTypes, AGENT_NAMES
 from app.services.test_report_service import test_report_service
-from datetime import datetime
 
 
 @type_subscription(topic_type=TopicTypes.PLAYWRIGHT_EXECUTOR.value)
@@ -98,6 +97,7 @@ class PlaywrightExecutorAgent(BaseAgent):
     async def handle_execution_request(self, message: PlaywrightExecutionRequest, ctx: MessageContext) -> None:
         """处理Playwright执行请求"""
         monitor_id = None
+        execution_id = None
         try:
             monitor_id = self.start_performance_monitoring("playwright_execution")
             execution_id = str(uuid.uuid4())
@@ -116,7 +116,7 @@ class PlaywrightExecutorAgent(BaseAgent):
                 "start_time": datetime.now().isoformat(),
                 "script_name": message.script_name,
                 "test_content": message.test_content,
-                "config": message.execution_config or {},
+                "config": message.execution_config.model_dump() if message.execution_config else {},
                 "logs": [],
                 "screenshots": [],
                 "results": None,
@@ -130,6 +130,9 @@ class PlaywrightExecutorAgent(BaseAgent):
 
             # 更新执行记录
             self.execution_records[execution_id].update(execution_result)
+
+            # 保存执行记录到数据库
+            await self._save_execution_record_to_database(execution_id, message, execution_result)
 
             # 保存测试报告到数据库
             await self._save_test_report_to_database(execution_id, message, execution_result)
@@ -175,7 +178,7 @@ class PlaywrightExecutorAgent(BaseAgent):
             execution_result = await self._run_playwright_test(test_file_path, execution_id)
 
             # 解析结果和报告
-            parsed_result = await self._parse_playwright_result(execution_result)
+            parsed_result = self._parse_playwright_result(execution_result)
 
             # 如果是临时创建的文件，清理它
             # if not message.script_name and message.test_content:
@@ -289,10 +292,37 @@ test("AI自动化测试", async ({{
                 relative_path_str = str(relative_test_path)
             command = ["npx", "playwright", "test", relative_path_str]
 
+            # 检查是否需要添加 --headed 参数
+            config = record.get("config", {})
+            if config:
+                # 处理不同类型的配置对象
+                if hasattr(config, 'headed'):
+                    headed = config.headed
+                elif isinstance(config, dict):
+                    headed = config.get('headed', False)
+                else:
+                    headed = False
+
+                # 如果配置为有头模式，添加 --headed 参数
+                if headed:
+                    command.append("--headed")
+                    record["logs"].append("启用有头模式（显示浏览器界面）")
+                    await self.send_response("🖥️ 启用有头模式（显示浏览器界面）")
+                    logger.info("添加 --headed 参数到Playwright命令")
+
             # 设置环境变量
             env = os.environ.copy()
-            if hasattr(record["config"], "environment_variables") and record["config"].environment_variables:
-                env.update(record["config"].environment_variables)
+            if config:
+                # 处理不同类型的配置对象中的环境变量
+                env_vars = None
+                if hasattr(config, 'environment_variables'):
+                    env_vars = config.environment_variables
+                elif isinstance(config, dict):
+                    env_vars = config.get('environment_variables')
+
+                if env_vars:
+                    env.update(env_vars)
+                    logger.info(f"添加环境变量: {list(env_vars.keys())}")
 
             logger.info(f"执行命令: {' '.join(command)}")
             logger.info(f"工作目录: {self.playwright_workspace}")
@@ -435,54 +465,6 @@ test("AI自动化测试", async ({{
             logger.error(f"运行Playwright测试失败: {str(e)}")
             raise
 
-    async def _parse_playwright_result(self, execution_result: Dict[str, Any]) -> Dict[str, Any]:
-        """解析Playwright执行结果"""
-        try:
-            return_code = execution_result["return_code"]
-            duration = execution_result["duration"]
-
-            # 基本结果
-            result = {
-                "status": "passed" if return_code == 0 else "failed",
-                "end_time": execution_result["end_time"],
-                "duration": duration,
-                "return_code": return_code
-            }
-
-            # 提取报告路径
-            report_path = self._extract_report_path(execution_result["stdout"])
-            if report_path:
-                result["report_path"] = report_path
-                logger.info(f"找到测试报告: {report_path}")
-
-            # 收集测试报告
-            reports = await self._collect_playwright_reports()
-            result["reports"] = reports
-
-            # 收集截图和视频
-            artifacts = await self._collect_test_artifacts()
-            result["screenshots"] = artifacts.get("screenshots", [])
-            result["videos"] = artifacts.get("videos", [])
-
-            # 解析测试结果
-            test_results = await self._parse_test_results(execution_result["stdout"])
-            result["test_results"] = test_results
-
-            # 如果有错误输出，添加错误信息
-            if execution_result["stderr"]:
-                result["error_message"] = "\n".join(execution_result["stderr"])
-
-            return result
-
-        except Exception as e:
-            logger.error(f"解析Playwright结果失败: {str(e)}")
-            return {
-                "status": "error",
-                "end_time": datetime.now().isoformat(),
-                "duration": execution_result.get("duration", 0.0),
-                "error_message": str(e)
-            }
-
     def _extract_report_path(self, stdout_lines: List[str]) -> Optional[str]:
         """从stdout中提取报告文件路径"""
         try:
@@ -507,6 +489,98 @@ test("AI自动化测试", async ({{
         except Exception as e:
             logger.error(f"提取报告路径失败: {str(e)}")
             return None
+
+    def _parse_playwright_result(self, execution_result: Dict[str, Any]) -> Dict[str, Any]:
+        """解析Playwright执行结果"""
+        try:
+            # 基础结果信息
+            parsed_result = {
+                "status": execution_result.get("status", "failed"),
+                "end_time": execution_result.get("end_time", datetime.now().isoformat()),
+                "duration": execution_result.get("duration", 0.0),
+                "return_code": execution_result.get("return_code", 1),
+                "error_message": execution_result.get("error_message"),
+                "stdout": execution_result.get("stdout", ""),
+                "stderr": execution_result.get("stderr", "")
+            }
+
+            # 提取报告路径
+            report_path = execution_result.get("report_path")
+            if not report_path and execution_result.get("stdout"):
+                stdout_data = execution_result["stdout"]
+                # 确保传入的是列表格式
+                if isinstance(stdout_data, str):
+                    stdout_data = stdout_data.split('\n')
+                elif not isinstance(stdout_data, list):
+                    stdout_data = [str(stdout_data)]
+                report_path = self._extract_report_path(stdout_data)
+
+            if report_path:
+                parsed_result["report_path"] = report_path
+                logger.info(f"找到测试报告: {report_path}")
+            else:
+                logger.warning("未找到测试报告文件")
+
+            # 解析测试统计信息
+            stdout = execution_result.get("stdout", "")
+            # 如果stdout是列表，转换为字符串
+            if isinstance(stdout, list):
+                stdout = "\n".join(str(line) for line in stdout)
+            elif not isinstance(stdout, str):
+                stdout = str(stdout)
+
+            test_stats = self._extract_test_statistics(stdout)
+            parsed_result.update(test_stats)
+
+            return parsed_result
+
+        except Exception as e:
+            logger.error(f"解析Playwright结果失败: {str(e)}")
+            return {
+                "status": "error",
+                "end_time": datetime.now().isoformat(),
+                "duration": 0.0,
+                "return_code": 1,
+                "error_message": str(e)
+            }
+
+    def _extract_test_statistics(self, stdout: str) -> Dict[str, Any]:
+        """从stdout中提取测试统计信息"""
+        stats = {
+            "total_tests": 0,
+            "passed_tests": 0,
+            "failed_tests": 0,
+            "skipped_tests": 0
+        }
+
+        try:
+            # 查找测试结果统计
+            # 例如: "1 failed", "2 passed", "Running 1 test using 1 worker"
+            import re
+
+            # 提取运行的测试数量
+            running_match = re.search(r'Running (\d+) test', stdout)
+            if running_match:
+                stats["total_tests"] = int(running_match.group(1))
+
+            # 提取失败的测试数量
+            failed_match = re.search(r'(\d+) failed', stdout)
+            if failed_match:
+                stats["failed_tests"] = int(failed_match.group(1))
+
+            # 提取通过的测试数量
+            passed_match = re.search(r'(\d+) passed', stdout)
+            if passed_match:
+                stats["passed_tests"] = int(passed_match.group(1))
+
+            # 如果没有明确的通过数量，计算通过数量
+            if stats["passed_tests"] == 0 and stats["total_tests"] > 0:
+                stats["passed_tests"] = stats["total_tests"] - stats["failed_tests"] - stats["skipped_tests"]
+
+        except Exception as e:
+            logger.warning(f"提取测试统计信息失败: {str(e)}")
+
+        return stats
 
     async def _open_report_in_browser(self, report_path: str) -> None:
         """在浏览器中打开报告"""
@@ -642,6 +716,45 @@ test("AI自动化测试", async ({{
         except Exception as e:
             logger.warning(f"清理测试文件失败: {str(e)}")
 
+    async def _find_default_report_path(self, execution_id: str) -> Optional[str]:
+        """查找默认位置的报告文件"""
+        try:
+            # 可能的报告路径
+            possible_paths = [
+                self.playwright_workspace / "midscene_run" / "report" / f"{execution_id}.html",
+                self.playwright_workspace / "midscene_run" / "report" / "index.html",
+                self.playwright_workspace / "playwright-report" / "index.html",
+                self.playwright_workspace / "test-results" / "index.html",
+            ]
+
+            for path in possible_paths:
+                if path.exists():
+                    logger.info(f"在默认位置找到报告文件: {path}")
+                    return str(path)
+
+            # 如果没有找到，尝试搜索最新的HTML文件
+            report_dirs = [
+                self.playwright_workspace / "midscene_run" / "report",
+                self.playwright_workspace / "playwright-report",
+                self.playwright_workspace / "test-results",
+            ]
+
+            for report_dir in report_dirs:
+                if report_dir.exists():
+                    html_files = list(report_dir.glob("*.html"))
+                    if html_files:
+                        # 按修改时间排序，取最新的
+                        latest_file = max(html_files, key=lambda f: f.stat().st_mtime)
+                        logger.info(f"找到最新的报告文件: {latest_file}")
+                        return str(latest_file)
+
+            logger.warning(f"未找到执行 {execution_id} 的报告文件")
+            return None
+
+        except Exception as e:
+            logger.error(f"查找默认报告路径失败: {str(e)}")
+            return None
+
     def _get_report_extraction_util(self) -> str:
         """获取报告路径提取的Python代码示例"""
         return '''
@@ -753,6 +866,127 @@ def extract_report_path_from_output(stdout_lines):
         except Exception as e:
             logger.error(f"获取工作空间信息失败: {str(e)}")
             return {"error": str(e)}
+
+    async def _save_execution_record_to_database(
+        self,
+        execution_id: str,
+        message: PlaywrightExecutionRequest,
+        execution_result: Dict[str, Any]
+    ) -> None:
+        """保存执行记录到数据库"""
+        try:
+            from app.database.connection import db_manager
+            from app.database.models.executions import ScriptExecution
+            from app.database.models.scripts import TestScript
+
+            record = self.execution_records.get(execution_id, {})
+
+            # 提取脚本信息
+            script_id = getattr(message, 'script_id', None) or message.script_name or execution_id
+
+            # 解析时间信息
+            start_time = None
+            end_time = None
+            if record.get("start_time"):
+                try:
+                    start_time = datetime.fromisoformat(record["start_time"])
+                except:
+                    pass
+            if execution_result.get("end_time"):
+                try:
+                    end_time = datetime.fromisoformat(execution_result["end_time"])
+                except:
+                    pass
+
+            # 计算执行时长（秒）
+            duration_seconds = None
+            if start_time and end_time:
+                duration_seconds = int((end_time - start_time).total_seconds())
+            elif execution_result.get("duration"):
+                duration_seconds = int(execution_result["duration"])
+
+            # 确定执行状态 - 与TestReport保持一致的逻辑
+            return_code = execution_result.get("return_code", 1)
+            explicit_status = execution_result.get("status", "")
+
+            logger.info(f"状态映射调试 - return_code: {return_code}, explicit_status: '{explicit_status}'")
+
+            if return_code == 0:
+                status = "completed"  # 成功执行
+            else:
+                status = "failed"     # 执行失败
+
+            # 如果有明确的status字段，也考虑进去
+            if explicit_status == "success":
+                status = "completed"
+            elif explicit_status in ["pending", "running", "cancelled"]:
+                status = explicit_status
+
+            logger.info(f"最终状态映射结果: {status}")
+
+            # 安全序列化配置信息
+            safe_execution_config = {}
+            safe_environment_info = {}
+
+            try:
+                if record.get("config"):
+                    config = record["config"]
+                    # 如果是Pydantic模型，转换为字典
+                    if hasattr(config, 'model_dump'):
+                        safe_execution_config = config.model_dump()
+                    elif hasattr(config, 'dict'):
+                        safe_execution_config = config.dict()
+                    elif isinstance(config, dict):
+                        safe_execution_config = config
+                    else:
+                        safe_execution_config = {}
+
+                # 添加脚本信息到配置中
+                safe_execution_config["script_name"] = record.get("script_name", message.script_name)
+                safe_execution_config["script_type"] = "playwright"  # 明确设置脚本类型
+
+            except Exception as e:
+                logger.warning(f"序列化执行配置失败: {str(e)}")
+
+            try:
+                if execution_result.get("environment"):
+                    env = execution_result["environment"]
+                    # 如果是Pydantic模型，转换为字典
+                    if hasattr(env, 'model_dump'):
+                        safe_environment_info = env.model_dump()
+                    elif hasattr(env, 'dict'):
+                        safe_environment_info = env.dict()
+                    elif isinstance(env, dict):
+                        safe_environment_info = env
+                    else:
+                        safe_environment_info = {}
+            except Exception as e:
+                logger.warning(f"序列化环境信息失败: {str(e)}")
+
+            # 创建执行记录
+            db_execution = ScriptExecution(
+                script_id=script_id,
+                execution_id=execution_id,
+                status=status,
+                execution_config=safe_execution_config,
+                environment_info=safe_environment_info,
+                start_time=start_time,
+                end_time=end_time,
+                duration_seconds=duration_seconds,
+                error_message=execution_result.get("error_message") or record.get("error_message"),
+                exit_code=execution_result.get("return_code", 0),
+                performance_metrics={}
+            )
+
+            # 保存到MySQL数据库
+            async with db_manager.get_session() as session:
+                session.add(db_execution)
+                await session.commit()
+                await session.refresh(db_execution)
+                logger.info(f"执行记录已保存到MySQL: {db_execution.id} - {script_id}")
+
+        except Exception as e:
+            logger.error(f"保存执行记录失败: {str(e)}")
 
     async def _save_test_report_to_database(self, execution_id: str, message: PlaywrightExecutionRequest, execution_result: Dict[str, Any]) -> None:
         """保存测试报告到数据库"""

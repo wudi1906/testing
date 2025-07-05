@@ -67,6 +67,31 @@ const TestExecution: React.FC = () => {
     toast.info('执行会话已结束');
   };
 
+  // 处理执行完成
+  const handleExecutionComplete = (sessionId: string, results?: any) => {
+    console.log('执行完成:', sessionId, results);
+
+    // 更新执行计数，触发脚本列表刷新
+    setExecutionCount(prev => prev + 1);
+
+    // 显示完成通知
+    message.success('脚本执行已完成，脚本列表已刷新');
+
+    // 可以在这里添加其他需要的状态更新逻辑
+    // 比如刷新脚本列表、更新统计信息等
+  };
+
+  // 处理脚本执行完成（从脚本管理组件传递）
+  const handleScriptExecutionComplete = (sessionId: string, scriptName: string) => {
+    console.log('脚本执行完成回调:', sessionId, scriptName);
+
+    // 更新执行计数，触发脚本列表刷新
+    setExecutionCount(prev => prev + 1);
+
+    // 显示完成通知
+    toast.success(`脚本 ${scriptName} 执行完成`);
+  };
+
 
 
 
@@ -136,6 +161,8 @@ const TestExecution: React.FC = () => {
                   <ScriptManagementTab
                     onExecutionStart={handleExecutionStart}
                     onBatchExecutionStart={handleBatchExecutionStart}
+                    executionCount={executionCount}
+                    onExecutionComplete={handleScriptExecutionComplete}
                   />
                 </TabPane>
 
@@ -168,6 +195,7 @@ const TestExecution: React.FC = () => {
                 <ExecutionStatusPanel
                   sessionId={currentSessionId}
                   onSessionEnd={handleSessionEnd}
+                  onExecutionComplete={handleExecutionComplete}
                 />
               </motion.div>
             </Col>

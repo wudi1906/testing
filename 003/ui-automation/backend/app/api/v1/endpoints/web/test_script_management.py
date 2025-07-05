@@ -138,7 +138,7 @@ async def get_script(script_id: str):
 
 @router.put("/scripts/{script_id}", response_model=TestScript)
 async def update_script(script_id: str, request: ScriptUpdateRequest):
-    """更新脚本"""
+    """更新脚本（同时更新数据库和工作空间）"""
     try:
         # 构建更新字典
         updates = {}
@@ -153,7 +153,7 @@ async def update_script(script_id: str, request: ScriptUpdateRequest):
         if not script:
             raise HTTPException(status_code=404, detail="脚本不存在")
 
-        logger.info(f"脚本更新成功: {script_id}")
+        logger.info(f"脚本更新成功（已同步到工作空间）: {script_id}")
         return script
 
     except HTTPException:
@@ -202,7 +202,7 @@ async def execute_script(script_id: str, request: ScriptExecuteRequest):
             raise HTTPException(status_code=404, detail="脚本不存在")
 
         # 调用脚本执行服务
-        from app.api.v1.endpoints.web.script_execution import create_script_execution_session
+        from app.api.v1.endpoints.web.test_script_execution import create_script_execution_session
 
         # 创建执行会话
         session_id = await create_script_execution_session(
@@ -284,7 +284,7 @@ async def upload_script(
     category: Optional[str] = Form(None),
     tags: Optional[str] = Form(None)  # JSON字符串
 ):
-    """上传脚本文件"""
+    """上传脚本文件（同时保存到数据库和工作空间）"""
     try:
         # 验证文件类型
         allowed_extensions = ['.yaml', '.yml', '.ts', '.js']
@@ -344,11 +344,11 @@ async def upload_script(
         if updates:
             script = await database_script_service.update_script(script.id, updates)
 
-        logger.info(f"脚本上传成功: {script.id} - {script.name}")
+        logger.info(f"脚本上传成功（已同步到工作空间）: {script.id} - {script.name}")
         return {
             "status": "success",
             "script_id": script.id,
-            "message": "脚本上传成功",
+            "message": "脚本上传成功（已同步到工作空间）",
             "script": script
         }
 
@@ -408,3 +408,41 @@ async def save_script_from_session(
     except Exception as e:
         logger.error(f"从会话保存脚本失败: {e}")
         raise HTTPException(status_code=500, detail=f"保存脚本失败: {str(e)}")
+
+
+@router.post("/scripts/sync-workspace")
+async def sync_all_scripts_to_workspace():
+    """手动同步所有脚本到工作空间"""
+    try:
+        from app.utils.file_utils import sync_script_to_workspace
+
+        # 获取所有脚本
+        scripts = await database_script_service.search_scripts(ScriptSearchRequest())
+
+        synced_count = 0
+        failed_count = 0
+
+        for script in scripts:
+            try:
+                await sync_script_to_workspace(
+                    script_name=script.name,
+                    script_content=script.content,
+                    script_format=script.script_format.value
+                )
+                synced_count += 1
+            except Exception as e:
+                logger.error(f"同步脚本失败: {script.id} - {e}")
+                failed_count += 1
+
+        logger.info(f"工作空间同步完成: 成功 {synced_count}, 失败 {failed_count}")
+        return {
+            "status": "success",
+            "message": f"工作空间同步完成",
+            "synced_count": synced_count,
+            "failed_count": failed_count,
+            "total_scripts": len(scripts)
+        }
+
+    except Exception as e:
+        logger.error(f"同步工作空间失败: {e}")
+        raise HTTPException(status_code=500, detail=f"同步工作空间失败: {str(e)}")

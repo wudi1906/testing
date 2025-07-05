@@ -45,8 +45,8 @@ const { Text, Title } = Typography;
 
 interface UnifiedExecutionStatusPanelProps {
   sessionId: string | null;
-  scriptName?: string;
-  onSessionEnd?: () => void;
+  scriptName?: string | null;
+  onSessionEnd?: (sessionId: string) => void;
 }
 
 interface ExecutionMessage {
@@ -144,6 +144,13 @@ const UnifiedExecutionStatusPanel: React.FC<UnifiedExecutionStatusPanelProps> = 
             setIsExecutionComplete(true);
             setExecutionProgress(100);
             toast.success('执行完成');
+
+            // 通知脚本管理组件执行完成
+            if ((window as any).handleScriptExecutionComplete) {
+              // 从消息中提取脚本名称
+              const scriptName = data.result?.script_name || data.script_name || scriptName || '未知脚本';
+              (window as any).handleScriptExecutionComplete(sessionId, scriptName);
+            }
           }
 
           // 更新进度
@@ -204,7 +211,7 @@ const UnifiedExecutionStatusPanel: React.FC<UnifiedExecutionStatusPanelProps> = 
       toast.success('执行已停止');
       setIsExecutionComplete(true);
       disconnectSSE();
-      if (onSessionEnd) onSessionEnd();
+      if (onSessionEnd && sessionId) onSessionEnd(sessionId);
     } catch (error: any) {
       toast.error(`停止执行失败: ${error.message}`);
     }

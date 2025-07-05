@@ -56,6 +56,13 @@ class DatabaseSettings(BaseSettings):
     MYSQL_PASSWORD: str = "mysql"
     MYSQL_DATABASE: str = "automation_db"
 
+    # 数据库连接池配置
+    DATABASE_ECHO: bool = False
+    DATABASE_POOL_SIZE: int = 10
+    DATABASE_MAX_OVERFLOW: int = 20
+    DATABASE_POOL_TIMEOUT: int = 30
+    DATABASE_POOL_RECYCLE: int = 3600
+
     @property
     def database_url(self) -> str:
         """获取数据库连接URL - 优先使用DATABASE_URL环境变量"""
@@ -150,6 +157,10 @@ class FileStorageSettings(BaseSettings):
     IMAGE_UPLOAD_DIR: str = "uploads/images"
     YAML_OUTPUT_DIR: str = "uploads/yaml"
     PLAYWRIGHT_OUTPUT_DIR: str = "uploads/playwright"
+
+    # 文件系统脚本存储目录（独立于执行工作空间）
+    FILESYSTEM_SCRIPTS_DIR: str = "filesystem_scripts"
+
     MAX_IMAGE_SIZE: int = 10 * 1024 * 1024  # 10MB
 
 

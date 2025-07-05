@@ -10,6 +10,7 @@ from .scripts import TestScript, ScriptTag, ScriptRelationship
 from .executions import ScriptExecution, ExecutionArtifact, BatchExecution, ExecutionLog
 from .reports import TestReport
 from .page_analysis import PageAnalysisResult, PageElement
+from .scheduled_tasks import ScheduledTask, TaskExecution
 # from .templates import ReportTemplate, ScriptCollection, CollectionScript, CollectionTag
 # from .settings import SystemSetting, UserPreference
 
@@ -27,6 +28,8 @@ __all__ = [
     'TestReport',
     'PageAnalysisResult',
     'PageElement',
+    'ScheduledTask',
+    'TaskExecution',
     # 'ReportTag',
     # 'TestCaseResult',
     # 'ReportTemplate',

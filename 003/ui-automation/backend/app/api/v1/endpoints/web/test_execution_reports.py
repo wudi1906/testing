@@ -124,6 +124,31 @@ async def view_report_html(execution_id: str):
         raise HTTPException(status_code=500, detail=f"查看测试报告失败: {str(e)}")
 
 
+@router.get("/script/{script_id}/latest")
+async def check_latest_report_by_script_id(script_id: str):
+    """检查脚本是否有最新的测试报告"""
+    try:
+        # 获取最新报告记录
+        report = await test_report_service.get_report_by_script_id(script_id)
+        if not report:
+            raise HTTPException(status_code=404, detail=f"未找到脚本 {script_id} 的测试报告")
+
+        return {
+            "exists": True,
+            "report_id": report.id,
+            "execution_id": report.execution_id,
+            "status": report.status,
+            "created_at": report.created_at.isoformat() if report.created_at else None,
+            "report_url": f"/api/v1/web/reports/view/script/{script_id}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"检查测试报告失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"检查测试报告失败: {str(e)}")
+
+
 @router.get("/view/script/{script_id}")
 async def view_latest_report_by_script_id(script_id: str):
     """根据脚本ID查看最新的HTML测试报告"""

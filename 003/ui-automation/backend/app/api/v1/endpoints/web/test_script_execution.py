@@ -3,7 +3,7 @@ Web脚本执行 - 支持单个和多个脚本批量执行
 参考image_analysis.py的架构，支持SSE流式接口和实时状态更新
 """
 from autogen_core import CancellationToken, MessageContext, ClosureContext
-from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks, Form
+from fastapi import APIRouter, Request, Depends, HTTPException, BackgroundTasks, Form, UploadFile, File
 from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -43,6 +43,7 @@ SESSION_TIMEOUT = 3600  # 1小时
 
 # Playwright工作空间路径
 PLAYWRIGHT_WORKSPACE = Path(r"C:\Users\86134\Desktop\workspace\playwright-workspace")
+SCRIPTS_UPLOAD_PATH = PLAYWRIGHT_WORKSPACE / "uploads"
 
 # 统一执行请求和响应模型
 class UnifiedScriptExecutionRequest(BaseModel):
@@ -105,15 +106,33 @@ async def resolve_script_by_id(script_id: str) -> Dict[str, Any]:
     try:
         db_script = await database_script_service.get_script(script_id)
         if db_script:
-            # 数据库脚本：使用存储的名称在工作空间中查找文件
-            script_path = PLAYWRIGHT_WORKSPACE / "e2e" / db_script.name
+            # 优先使用数据库中存储的文件路径
+            if db_script.file_path and Path(db_script.file_path).exists():
+                script_path = Path(db_script.file_path)
+                logger.info(f"使用数据库存储的文件路径: {script_path}")
+            else:
+                # 如果数据库中没有文件路径或文件不存在，尝试重新同步
+                logger.warning(f"数据库脚本文件路径无效，尝试重新同步: {db_script.file_path}")
+                await database_script_service._sync_script_to_filesystem(db_script)
 
-            # 如果路径不存在，尝试添加扩展名
-            if not script_path.exists():
-                if db_script.script_format == ScriptFormat.PLAYWRIGHT:
-                    script_path = PLAYWRIGHT_WORKSPACE / "e2e" / f"{db_script.name}.spec.ts"
+                # 重新获取更新后的脚本信息
+                updated_script = await database_script_service.get_script(script_id)
+                if updated_script and updated_script.file_path and Path(updated_script.file_path).exists():
+                    script_path = Path(updated_script.file_path)
+                    logger.info(f"重新同步后的文件路径: {script_path}")
                 else:
-                    script_path = PLAYWRIGHT_WORKSPACE / "e2e" / f"{db_script.name}.yaml"
+                    # 如果仍然无法找到文件，使用默认路径生成逻辑
+                    safe_name = "".join(c for c in db_script.name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                    safe_name = safe_name.replace(' ', '_')
+
+                    if db_script.script_format == ScriptFormat.PLAYWRIGHT:
+                        if not safe_name.endswith('.spec'):
+                            safe_name = f"{safe_name}.spec"
+                        script_path = PLAYWRIGHT_WORKSPACE / "e2e" / f"{safe_name}.ts"
+                    else:
+                        script_path = PLAYWRIGHT_WORKSPACE / "e2e" / f"{safe_name}.yaml"
+
+                    logger.warning(f"使用默认路径: {script_path}")
 
             # 验证文件是否存在
             if not script_path.exists():
@@ -124,27 +143,30 @@ async def resolve_script_by_id(script_id: str) -> Dict[str, Any]:
                 "name": db_script.name,
                 "file_name": script_path.name,
                 "path": str(script_path),
-                "description": db_script.description or f"脚本: {db_script.name}"
+                "description": db_script.description or f"脚本: {db_script.name}",
+                "source": "database"
             }
     except Exception as e:
         logger.warning(f"从数据库获取脚本失败: {script_id} - {e}")
 
-    # 尝试从文件系统获取脚本（假设script_id是文件名）
+    # 尝试从文件系统获取脚本（从独立存储目录）
     try:
-        e2e_dir = PLAYWRIGHT_WORKSPACE / "e2e"
-        script_path = e2e_dir / script_id
+        from app.services.filesystem_script_service import filesystem_script_service
 
         # 如果script_id不包含扩展名，尝试添加.spec.ts
-        if not script_path.exists() and not script_id.endswith('.spec.ts'):
-            script_path = e2e_dir / f"{script_id}.spec.ts"
+        script_name = script_id
+        if not script_name.endswith('.spec.ts'):
+            script_name = f"{script_id}.spec.ts"
 
-        if script_path.exists():
+        script_info = await filesystem_script_service.get_script(script_name)
+        if script_info:
             return {
                 "script_id": script_id,
-                "name": script_path.stem,  # 不包含扩展名的文件名
-                "file_name": script_path.name,
-                "path": str(script_path),
-                "description": f"脚本: {script_path.name}"
+                "name": script_info["metadata"]["original_name"],
+                "file_name": script_info["name"],
+                "path": script_info["file_path"],
+                "description": script_info["metadata"]["description"],
+                "source": "filesystem"
             }
     except Exception as e:
         logger.warning(f"从文件系统获取脚本失败: {script_id} - {e}")
@@ -153,27 +175,19 @@ async def resolve_script_by_id(script_id: str) -> Dict[str, Any]:
     raise HTTPException(status_code=404, detail=f"脚本不存在: {script_id}")
 
 
-def get_available_scripts() -> List[Dict[str, Any]]:
-    """获取e2e目录下可用的脚本列表"""
+async def get_available_scripts() -> List[Dict[str, Any]]:
+    """获取文件系统脚本列表（从独立存储目录）"""
     try:
-        e2e_dir = PLAYWRIGHT_WORKSPACE / "e2e"
-        if not e2e_dir.exists():
-            return []
-        
-        scripts = []
-        for script_file in e2e_dir.glob("*.spec.ts"):
-            if script_file.name != "fixture.ts":  # 排除fixture文件
-                scripts.append({
-                    "name": script_file.name,
-                    "path": str(script_file),
-                    "size": script_file.stat().st_size,
-                    "modified": datetime.fromtimestamp(script_file.stat().st_mtime).isoformat()
-                })
-        
-        return sorted(scripts, key=lambda x: x["modified"], reverse=True)
-    
+        from app.services.filesystem_script_service import filesystem_script_service
+
+        # 从独立的文件系统脚本目录获取脚本列表
+        scripts = await filesystem_script_service.list_scripts()
+
+        logger.info(f"获取文件系统脚本列表成功，共 {len(scripts)} 个脚本")
+        return scripts
+
     except Exception as e:
-        logger.error(f"获取可用脚本列表失败: {str(e)}")
+        logger.error(f"获取文件系统脚本列表失败: {str(e)}")
         return []
 
 
@@ -193,7 +207,7 @@ async def health_check():
 async def list_available_scripts():
     """获取可用的脚本列表"""
     try:
-        scripts = get_available_scripts()
+        scripts = await get_available_scripts()
         return JSONResponse({
             "scripts": scripts,
             "total": len(scripts),
@@ -204,6 +218,68 @@ async def list_available_scripts():
     except Exception as e:
         logger.error(f"获取脚本列表失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取脚本列表失败: {str(e)}")
+
+
+@router.post("/filesystem-scripts/upload")
+async def upload_filesystem_script(
+    file: UploadFile = File(...),
+    script_name: str = Form(None),
+    description: str = Form(None)
+):
+    """上传文件系统脚本"""
+    try:
+        from app.services.filesystem_script_service import filesystem_script_service
+
+        # 读取文件内容
+        content = await file.read()
+        content_str = content.decode('utf-8')
+
+        # 使用提供的脚本名称或文件名
+        name = script_name or file.filename
+        if not name:
+            raise HTTPException(status_code=400, detail="脚本名称不能为空")
+
+        # 保存脚本
+        result = await filesystem_script_service.save_script(
+            script_name=name,
+            content=content_str,
+            description=description
+        )
+
+        if result["success"]:
+            return JSONResponse({
+                "success": True,
+                "message": f"文件系统脚本上传成功: {result['script_name']}",
+                "script_name": result["script_name"],
+                "file_path": result["file_path"]
+            })
+        else:
+            raise HTTPException(status_code=500, detail=result["error"])
+
+    except Exception as e:
+        logger.error(f"上传文件系统脚本失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"上传失败: {str(e)}")
+
+
+@router.delete("/filesystem-scripts/{script_name}")
+async def delete_filesystem_script(script_name: str):
+    """删除文件系统脚本"""
+    try:
+        from app.services.filesystem_script_service import filesystem_script_service
+
+        success = await filesystem_script_service.delete_script(script_name)
+
+        if success:
+            return JSONResponse({
+                "success": True,
+                "message": f"文件系统脚本删除成功: {script_name}"
+            })
+        else:
+            raise HTTPException(status_code=404, detail=f"脚本不存在: {script_name}")
+
+    except Exception as e:
+        logger.error(f"删除文件系统脚本失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
 
 
 @router.post("/execute-by-id", response_model=UnifiedScriptExecutionResponse)
@@ -779,7 +855,8 @@ async def process_script_execution_task(session_id: str):
 async def execute_single_script_task(session_id: str, session_info: Dict[str, Any],
                                    orchestrator, message_queue: asyncio.Queue):
     """执行单个脚本任务"""
-    script_name = session_info["script_name"]
+    script_info = session_info.get("script_info", {})
+    script_name = script_info.get("name", session_info.get("script_name", ""))
     execution_config = session_info["execution_config"]
 
     logger.info(f"开始执行单个脚本: {script_name}")
@@ -807,11 +884,53 @@ async def execute_single_script_task(session_id: str, session_info: Dict[str, An
     await message_queue.put(script_start_message)
 
     try:
+        # 处理文件系统脚本的复制
+        actual_script_name = script_name
+        if script_info.get("source") == "filesystem":
+            # 文件系统脚本需要先复制到工作空间
+            from app.services.filesystem_script_service import filesystem_script_service
+
+            # 发送复制消息
+            copy_message = StreamMessage(
+                message_id=f"copy-{uuid.uuid4()}",
+                type="message",
+                source="文件管理器",
+                content=f"📁 正在复制文件系统脚本到执行工作空间: {script_name}",
+                region="process",
+                platform="web",
+                is_final=False
+            )
+            await message_queue.put(copy_message)
+
+            # 执行复制
+            copied_path = await filesystem_script_service.copy_to_workspace(
+                script_info.get("file_name", script_name),
+                PLAYWRIGHT_WORKSPACE
+            )
+
+            if copied_path:
+                actual_script_name = copied_path.name
+                logger.info(f"文件系统脚本复制成功: {script_name} -> {actual_script_name}")
+
+                # 发送复制成功消息
+                copy_success_message = StreamMessage(
+                    message_id=f"copy-success-{uuid.uuid4()}",
+                    type="message",
+                    source="文件管理器",
+                    content=f"✅ 脚本复制成功，准备执行: {actual_script_name}",
+                    region="success",
+                    platform="web",
+                    is_final=False
+                )
+                await message_queue.put(copy_success_message)
+            else:
+                raise Exception(f"文件系统脚本复制失败: {script_name}")
+
         # 创建Playwright执行请求
         playwright_request = PlaywrightExecutionRequest(
             session_id=session_id,
-            script_id=script_name,  # 使用script_name作为script_id
-            script_name=script_name,
+            script_id=actual_script_name,  # 使用实际的脚本名称
+            script_name=actual_script_name,
             execution_config=execution_config
         )
 
@@ -1182,7 +1301,7 @@ async def stop_session(session_id: str):
 async def get_workspace_info():
     """获取工作空间信息"""
     try:
-        scripts = get_available_scripts()
+        scripts = await get_available_scripts()
 
         # 检查工作空间状态
         workspace_status = {

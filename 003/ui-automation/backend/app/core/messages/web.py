@@ -54,6 +54,7 @@ class PageAnalysis(BaseModel):
     test_steps: List[TestAction] = Field(default_factory=list, description="测试步骤")
     analysis_summary: str = Field(..., description="分析总结")
     confidence_score: float = Field(default=0.0, description="置信度分数")
+    database_elements: Optional[Dict[str, Any]] = Field(None, description="从数据库获取的页面元素信息")
 
 
 class WebGeneratedScript(BaseModel):
@@ -85,6 +86,7 @@ class WebMultimodalAnalysisRequest(BaseMessage):
     test_description: str = Field(..., description="测试需求描述")
     additional_context: Optional[str] = Field(None, description="额外上下文信息")
     generate_formats: List[str] = Field(default=["yaml"], description="生成格式列表")
+    selected_page_ids: Optional[List[str]] = Field(None, description="用户选择的页面ID列表")
     
     class Config:
         json_schema_extra = {
@@ -286,6 +288,7 @@ class TestCaseElementParseRequest(BaseMessage):
     target_format: str = Field(default="yaml", description="目标脚本格式: yaml, playwright")
     additional_context: Optional[str] = Field(None, description="额外上下文信息")
     page_filter: Optional[List[str]] = Field(None, description="页面过滤条件")
+    selected_page_ids: Optional[List[str]] = Field(None, description="用户选择的页面ID列表")
 
 
 class ParsedPageElement(BaseModel):
@@ -329,6 +332,7 @@ class TestCaseElementParseResponse(BaseMessage):
     processing_time: float = Field(default=0.0, description="处理时间（秒）")
     status: str = Field(..., description="处理状态")
     message: str = Field(..., description="响应消息")
+    database_results: Optional[Dict[str, Any]] = Field(None, description="数据库查询的页面元素结果")
 
 
 # ============ 统一的图像分析消息类型 ============

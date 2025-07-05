@@ -219,7 +219,7 @@ class TestReportService:
                     TestReport.script_id == script_id
                 ).order_by(desc(TestReport.created_at))
                 result = await session.execute(stmt)
-                return result.scalar_one_or_none()
+                return result.scalars().first()  # 使用first()而不是scalar_one_or_none()
         except Exception as e:
             logger.error(f"获取测试报告失败: {str(e)}")
             return None
@@ -292,7 +292,7 @@ class TestReportService:
                     TestReport.script_id == script_id
                 ).order_by(desc(TestReport.created_at))
                 result = await session.execute(stmt)
-                report = result.scalar_one_or_none()
+                report = result.scalars().first()  # 使用first()而不是scalar_one_or_none()
 
                 if report and report.report_path:
                     # 验证文件是否存在

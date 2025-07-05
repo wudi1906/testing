@@ -45,6 +45,7 @@ import {
   getScriptStatistics,
   executeScript
 } from '../../../../services/api';
+import { PageAnalysisApi } from '../../../../services/pageAnalysisApi';
 import './WebTestCreationOptimized.css';
 
 const { TabPane } = Tabs;
@@ -111,6 +112,22 @@ const WebTestCreationOptimized: React.FC = () => {
   // 脚本统计信息
   const [scriptStats, setScriptStats] = useState<any>(null);
 
+  // 重复点击防护状态
+  const [lastAnalysisParams, setLastAnalysisParams] = useState<{
+    type: 'image' | 'url';
+    content: string;
+    formats: string[];
+    description: string;
+  } | null>(null);
+
+  // 页面选择相关状态
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [availablePages, setAvailablePages] = useState<any[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+
+  // 页面分析API实例
+  const pageAnalysisApi = new PageAnalysisApi();
+
   // 获取脚本统计信息
   useEffect(() => {
     const fetchStats = async () => {
@@ -124,6 +141,30 @@ const WebTestCreationOptimized: React.FC = () => {
     fetchStats();
   }, []);
 
+  // 加载可用页面列表
+  useEffect(() => {
+    const loadAvailablePages = async () => {
+      setLoadingPages(true);
+      try {
+        const response = await pageAnalysisApi.getPageList();
+        if (response.data) {
+          // 只显示分析完成的页面
+          const completedPages = response.data.filter(page =>
+            page.analysis_status === 'completed' && page.elements_count > 0
+          );
+          setAvailablePages(completedPages);
+        }
+      } catch (error) {
+        console.error('加载页面列表失败:', error);
+        message.error('加载页面列表失败');
+      } finally {
+        setLoadingPages(false);
+      }
+    };
+
+    loadAvailablePages();
+  }, []);
+
   // 处理图片上传
   const handleImageUpload = useCallback((file: any) => {
     setUploadedFile(file);
@@ -134,6 +175,23 @@ const WebTestCreationOptimized: React.FC = () => {
   const handleImageAnalysis = useCallback(async (values: any) => {
     if (!uploadedFile) {
       message.error('请先上传图片');
+      return;
+    }
+
+    // 检查是否重复点击
+    const currentParams = {
+      type: 'image' as const,
+      content: uploadedFile.name + uploadedFile.size, // 使用文件名和大小作为唯一标识
+      formats: [...selectedFormats].sort(),
+      description: values.test_description || ''
+    };
+
+    if (lastAnalysisParams &&
+        lastAnalysisParams.type === currentParams.type &&
+        lastAnalysisParams.content === currentParams.content &&
+        JSON.stringify(lastAnalysisParams.formats) === JSON.stringify(currentParams.formats) &&
+        lastAnalysisParams.description === currentParams.description) {
+      message.warning('参数未修改，无需重复分析');
       return;
     }
 
@@ -156,9 +214,17 @@ const WebTestCreationOptimized: React.FC = () => {
     formData.append('category', databaseConfig.category);
     formData.append('priority', databaseConfig.priority.toString());
 
+    // 添加选择的页面ID
+    if (selectedPageIds.length > 0) {
+      formData.append('selected_page_ids', selectedPageIds.join(','));
+    }
+
     try {
       const result = await analyzeWebImage(formData);
-      
+
+      // 记录本次分析参数
+      setLastAnalysisParams(currentParams);
+
       if (result.sse_endpoint && result.session_id) {
         setCurrentSessionId(result.session_id);
         toast.success('开始实时分析...');
@@ -175,10 +241,27 @@ const WebTestCreationOptimized: React.FC = () => {
       setIsAnalyzing(false);
       toast.error(`分析失败: ${error.message}`);
     }
-  }, [uploadedFile, selectedFormats, databaseConfig]);
+  }, [uploadedFile, selectedFormats, databaseConfig, lastAnalysisParams, selectedPageIds]);
 
   // 处理URL分析
   const handleURLAnalysis = useCallback(async (values: any) => {
+    // 检查是否重复点击
+    const currentParams = {
+      type: 'url' as const,
+      content: values.url || '',
+      formats: [...selectedFormats].sort(),
+      description: values.test_description || ''
+    };
+
+    if (lastAnalysisParams &&
+        lastAnalysisParams.type === currentParams.type &&
+        lastAnalysisParams.content === currentParams.content &&
+        JSON.stringify(lastAnalysisParams.formats) === JSON.stringify(currentParams.formats) &&
+        lastAnalysisParams.description === currentParams.description) {
+      message.warning('参数未修改，无需重复分析');
+      return;
+    }
+
     setIsAnalyzing(true);
 
     const analysisRequest = {
@@ -190,12 +273,17 @@ const WebTestCreationOptimized: React.FC = () => {
       script_description: values.test_description || 'UI自动化测试脚本',
       tags: JSON.stringify(databaseConfig.tags),
       category: databaseConfig.category,
-      priority: databaseConfig.priority
+      priority: databaseConfig.priority,
+      // 添加选择的页面ID
+      selected_page_ids: selectedPageIds.length > 0 ? selectedPageIds.join(',') : undefined
     };
 
     try {
       const result = await analyzeWebURL(analysisRequest);
-      
+
+      // 记录本次分析参数
+      setLastAnalysisParams(currentParams);
+
       if (result.sse_endpoint && result.session_id) {
         setCurrentSessionId(result.session_id);
         toast.success('开始实时分析...');
@@ -212,7 +300,7 @@ const WebTestCreationOptimized: React.FC = () => {
       setIsAnalyzing(false);
       toast.error(`分析失败: ${error.message}`);
     }
-  }, [selectedFormats]);
+  }, [selectedFormats, lastAnalysisParams, selectedPageIds]);
 
   // 获取生成的脚本
   const fetchGeneratedScripts = useCallback(async (sessionId: string) => {
@@ -380,6 +468,42 @@ const WebTestCreationOptimized: React.FC = () => {
                 <TextArea rows={2} placeholder="提供额外的测试上下文..." />
               </Form.Item>
 
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: 8,
+                  fontWeight: 500,
+                  color: 'rgba(0, 0, 0, 0.85)'
+                }}>
+                  关联页面（可选）
+                </label>
+                <Select
+                  mode="multiple"
+                  placeholder="选择已分析的页面，用于获取页面元素信息优化脚本生成"
+                  value={selectedPageIds}
+                  onChange={(value) => {
+                    console.log('🔍 页面选择变化 (Optimized):', value);
+                    setSelectedPageIds(value);
+                  }}
+                  loading={loadingPages}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={availablePages.map(page => ({
+                    value: page.id,
+                    label: `${page.page_name} (${page.elements_count}个元素)`,
+                    title: page.page_description || page.page_name
+                  }))}
+                  maxTagCount={3}
+                  maxTagTextLength={20}
+                  style={{ width: '100%' }}
+                />
+                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                  💡 选择相关页面可以帮助AI获取准确的页面元素信息，生成更高质量的测试脚本
+                </div>
+              </div>
+
               <Form.Item>
                 <Button
                   type="primary"
@@ -418,6 +542,42 @@ const WebTestCreationOptimized: React.FC = () => {
               <Form.Item name="additional_context" label="附加上下文">
                 <TextArea rows={2} placeholder="提供额外的测试上下文..." />
               </Form.Item>
+
+              <div style={{ marginBottom: 16 }}>
+                <label style={{
+                  display: 'block',
+                  marginBottom: 8,
+                  fontWeight: 500,
+                  color: 'rgba(0, 0, 0, 0.85)'
+                }}>
+                  关联页面（可选）
+                </label>
+                <Select
+                  mode="multiple"
+                  placeholder="选择已分析的页面，用于获取页面元素信息优化脚本生成"
+                  value={selectedPageIds}
+                  onChange={(value) => {
+                    console.log('🔍 页面选择变化 (Optimized 2):', value);
+                    setSelectedPageIds(value);
+                  }}
+                  loading={loadingPages}
+                  showSearch
+                  filterOption={(input, option) =>
+                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                  }
+                  options={availablePages.map(page => ({
+                    value: page.id,
+                    label: `${page.page_name} (${page.elements_count}个元素)`,
+                    title: page.page_description || page.page_name
+                  }))}
+                  maxTagCount={3}
+                  maxTagTextLength={20}
+                  style={{ width: '100%' }}
+                />
+                <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                  💡 选择相关页面可以帮助AI获取准确的页面元素信息，生成更高质量的测试脚本
+                </div>
+              </div>
 
               <Form.Item>
                 <Button

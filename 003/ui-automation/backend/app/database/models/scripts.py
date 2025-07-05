@@ -63,6 +63,7 @@ class TestScript(BaseModel):
         back_populates="target_script"
     )
     # collection_memberships = relationship("CollectionScript", back_populates="script")  # 暂时注释，等待CollectionScript模型实现
+    scheduled_tasks = relationship("ScheduledTask", back_populates="script", cascade="all, delete-orphan")
     
     # 约束和索引
     __table_args__ = (

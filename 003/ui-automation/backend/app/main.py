@@ -41,6 +41,9 @@ async def lifespan(app: FastAPI):
     # 预热AI模型
     await warmup_ai_models()
 
+    # 初始化定时任务调度器
+    await init_task_scheduler()
+
     logger.info("✅ 系统启动完成")
     
     yield
@@ -50,7 +53,10 @@ async def lifespan(app: FastAPI):
     
     # 清理资源
     await cleanup_resources()
-    
+
+    # 关闭定时任务调度器
+    await shutdown_task_scheduler()
+
     logger.info("✅ 系统关闭完成")
 
 
@@ -158,8 +164,8 @@ async def init_databases():
         logger.info("初始化数据库连接...")
 
         # 初始化主数据库（MySQL/PostgreSQL）
-        from app.core.database_startup import app_database_manager
-        database_initialized = await app_database_manager.startup()
+        from app.core.database_startup import initialize_database_on_startup
+        database_initialized = await initialize_database_on_startup()
 
         if database_initialized:
             logger.info("✅ 主数据库连接初始化完成")
@@ -247,12 +253,32 @@ async def check_system_health() -> Dict[str, Any]:
     }
 
 
+async def init_task_scheduler():
+    """初始化定时任务调度器"""
+    try:
+        from app.services.task_scheduler_service import task_scheduler
+        await task_scheduler.initialize()
+        logger.info("✅ 定时任务调度器初始化完成")
+    except Exception as e:
+        logger.error(f"定时任务调度器初始化失败: {str(e)}")
+
+
+async def shutdown_task_scheduler():
+    """关闭定时任务调度器"""
+    try:
+        from app.services.task_scheduler_service import task_scheduler
+        await task_scheduler.shutdown()
+        logger.info("✅ 定时任务调度器关闭完成")
+    except Exception as e:
+        logger.error(f"定时任务调度器关闭失败: {str(e)}")
+
+
 async def cleanup_resources():
     """清理资源"""
     try:
         # 清理数据库连接
-        from app.core.database_startup import app_database_manager
-        await app_database_manager.shutdown()
+        from app.database.connection import db_manager
+        await db_manager.shutdown()
 
         # 清理AI模型客户端
         from app.core.llms import get_uitars_model_client,get_deepseek_model_client

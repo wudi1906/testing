@@ -393,6 +393,20 @@ export const deleteScript = async (scriptId: string): Promise<{
 };
 
 /**
+ * 同步所有脚本到工作空间
+ */
+export const syncScriptsToWorkspace = async (): Promise<{
+  status: string;
+  message: string;
+  synced_count: number;
+  failed_count: number;
+  total_scripts: number;
+}> => {
+  const response = await apiClient.post('/web/scripts/sync-workspace');
+  return response.data;
+};
+
+/**
  * 获取脚本执行记录
  */
 export const getScriptExecutions = async (scriptId: string, limit: number = 20): Promise<Array<any>> => {

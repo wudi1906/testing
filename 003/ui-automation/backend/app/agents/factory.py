@@ -33,7 +33,7 @@ class AgentFactory:
         """注册所有智能体类"""
         try:
             # Web平台智能体
-            from app.agents.web.ui_image_analyzer_agent import ImageAnalyzerAgent
+            # from app.agents.web.ui_image_analyzer_agent import ImageAnalyzerAgent
             from app.agents.web.page_element_analyzer_agent import PageAnalyzerAgent
             from app.agents.web.page_data_storage_agent import PageAnalysisStorageAgent
             from app.agents.web.yaml_script_generator_agent import YAMLGeneratorAgent
@@ -46,7 +46,7 @@ class AgentFactory:
 
             # 注册智能体类
             self._agent_classes.update({
-                AgentTypes.IMAGE_ANALYZER.value: ImageAnalyzerAgent,
+                # AgentTypes.IMAGE_ANALYZER.value: ImageAnalyzerAgent,
                 AgentTypes.PAGE_ANALYZER.value: PageAnalyzerAgent,
                 AgentTypes.PAGE_ANALYSIS_STORAGE.value: PageAnalysisStorageAgent,
                 AgentTypes.YAML_GENERATOR.value: YAMLGeneratorAgent,
@@ -208,13 +208,13 @@ class AgentFactory:
         try:
             logger.info("开始注册Web平台智能体...")
             # 注册图片分析智能体
-            await self.register_agent(
-                runtime,
-                AgentTypes.IMAGE_ANALYZER.value,
-                TopicTypes.IMAGE_ANALYZER.value,
-                enable_user_feedback=enable_user_feedback,
-                collector=collector,
-            )
+            # await self.register_agent(
+            #     runtime,
+            #     AgentTypes.IMAGE_ANALYZER.value,
+            #     TopicTypes.IMAGE_ANALYZER.value,
+            #     enable_user_feedback=enable_user_feedback,
+            #     collector=collector,
+            # )
 
             # 注册页面分析智能体
             await self.register_agent(

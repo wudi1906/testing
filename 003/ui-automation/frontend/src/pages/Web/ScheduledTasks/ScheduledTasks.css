@@ -1,0 +1,295 @@
+/* 定时任务管理页面样式 */
+.scheduled-tasks-container {
+  padding: 24px;
+  background: #f5f5f5;
+  min-height: 100vh;
+}
+
+.scheduled-tasks-container .ant-card {
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.scheduled-tasks-container .ant-card-head {
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.scheduled-tasks-container .ant-card-head-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* 统计卡片样式 */
+.scheduled-tasks-container .ant-statistic {
+  text-align: center;
+}
+
+.scheduled-tasks-container .ant-statistic-title {
+  font-size: 14px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.scheduled-tasks-container .ant-statistic-content {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+/* 表格样式 */
+.scheduled-tasks-container .ant-table {
+  background: #fff;
+  border-radius: 6px;
+}
+
+.scheduled-tasks-container .ant-table-thead > tr > th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #262626;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.scheduled-tasks-container .ant-table-tbody > tr > td {
+  border-bottom: 1px solid #f5f5f5;
+  padding: 12px 16px;
+}
+
+.scheduled-tasks-container .ant-table-tbody > tr:hover > td {
+  background: #fafafa;
+}
+
+/* 标签样式 */
+.scheduled-tasks-container .ant-tag {
+  border-radius: 4px;
+  font-size: 12px;
+  padding: 2px 8px;
+  margin: 2px;
+}
+
+/* 按钮样式 */
+.scheduled-tasks-container .ant-btn {
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.scheduled-tasks-container .ant-btn-primary {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.scheduled-tasks-container .ant-btn-primary:hover {
+  background: #40a9ff;
+  border-color: #40a9ff;
+}
+
+.scheduled-tasks-container .ant-btn-text {
+  color: #666;
+  border: none;
+  box-shadow: none;
+}
+
+.scheduled-tasks-container .ant-btn-text:hover {
+  color: #1890ff;
+  background: #f0f8ff;
+}
+
+.scheduled-tasks-container .ant-btn-text.ant-btn-dangerous:hover {
+  color: #ff4d4f;
+  background: #fff2f0;
+}
+
+/* 模态框样式 */
+.scheduled-tasks-container .ant-modal {
+  border-radius: 8px;
+}
+
+.scheduled-tasks-container .ant-modal-header {
+  border-bottom: 1px solid #f0f0f0;
+  border-radius: 8px 8px 0 0;
+}
+
+.scheduled-tasks-container .ant-modal-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.scheduled-tasks-container .ant-modal-body {
+  padding: 24px;
+}
+
+/* 表单样式 */
+.scheduled-tasks-container .ant-form-item-label > label {
+  font-weight: 500;
+  color: #262626;
+}
+
+.scheduled-tasks-container .ant-input,
+.scheduled-tasks-container .ant-select-selector,
+.scheduled-tasks-container .ant-picker {
+  border-radius: 4px;
+  border: 1px solid #d9d9d9;
+}
+
+.scheduled-tasks-container .ant-input:focus,
+.scheduled-tasks-container .ant-select-focused .ant-select-selector,
+.scheduled-tasks-container .ant-picker-focused {
+  border-color: #40a9ff;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+}
+
+/* 分割线样式 */
+.scheduled-tasks-container .ant-divider {
+  margin: 16px 0;
+  border-color: #f0f0f0;
+}
+
+.scheduled-tasks-container .ant-divider-inner-text {
+  font-weight: 500;
+  color: #666;
+  font-size: 14px;
+}
+
+/* 搜索栏样式 */
+.scheduled-tasks-container .search-bar {
+  background: #fff;
+  padding: 16px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .scheduled-tasks-container {
+    padding: 16px;
+  }
+  
+  .scheduled-tasks-container .ant-col {
+    margin-bottom: 16px;
+  }
+  
+  .scheduled-tasks-container .ant-table {
+    font-size: 12px;
+  }
+  
+  .scheduled-tasks-container .ant-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+}
+
+/* 动画效果 */
+.scheduled-tasks-container .ant-card,
+.scheduled-tasks-container .ant-table,
+.scheduled-tasks-container .ant-modal {
+  transition: all 0.3s ease;
+}
+
+.scheduled-tasks-container .ant-btn {
+  transition: all 0.2s ease;
+}
+
+.scheduled-tasks-container .ant-tag {
+  transition: all 0.2s ease;
+}
+
+/* 状态指示器 */
+.scheduled-tasks-container .status-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.scheduled-tasks-container .status-indicator .ant-badge-status-dot {
+  width: 8px;
+  height: 8px;
+}
+
+/* 执行统计样式 */
+.scheduled-tasks-container .execution-stats {
+  font-size: 12px;
+  color: #666;
+}
+
+.scheduled-tasks-container .execution-stats .success {
+  color: #52c41a;
+}
+
+.scheduled-tasks-container .execution-stats .failed {
+  color: #ff4d4f;
+}
+
+/* 时间显示样式 */
+.scheduled-tasks-container .time-display {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 12px;
+  color: #666;
+}
+
+/* 操作按钮组样式 */
+.scheduled-tasks-container .action-buttons {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.scheduled-tasks-container .action-buttons .ant-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 加载状态样式 */
+.scheduled-tasks-container .ant-spin-container {
+  min-height: 200px;
+}
+
+/* 空状态样式 */
+.scheduled-tasks-container .ant-empty {
+  padding: 40px 0;
+}
+
+.scheduled-tasks-container .ant-empty-description {
+  color: #999;
+}
+
+/* 工具提示样式 */
+.scheduled-tasks-container .ant-tooltip-inner {
+  background: rgba(0, 0, 0, 0.85);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* 分页样式 */
+.scheduled-tasks-container .ant-pagination {
+  margin-top: 16px;
+  text-align: right;
+}
+
+.scheduled-tasks-container .ant-pagination-item {
+  border-radius: 4px;
+}
+
+.scheduled-tasks-container .ant-pagination-item-active {
+  background: #1890ff;
+  border-color: #1890ff;
+}
+
+.scheduled-tasks-container .ant-pagination-item-active a {
+  color: #fff;
+}
+
+/* 成功率颜色 */
+.scheduled-tasks-container .success-rate-high {
+  color: #52c41a;
+}
+
+.scheduled-tasks-container .success-rate-medium {
+  color: #faad14;
+}
+
+.scheduled-tasks-container .success-rate-low {
+  color: #ff4d4f;
+}

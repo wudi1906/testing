@@ -28,7 +28,7 @@ router = APIRouter()
 class TextToScriptRequest(BaseModel):
     """基于文本生成脚本的请求模型"""
     test_description: str
-    generate_formats: List[str] = ["yaml"]
+    generate_formats: List[str] = ["playwright"]
     additional_context: Optional[str] = None
 
 

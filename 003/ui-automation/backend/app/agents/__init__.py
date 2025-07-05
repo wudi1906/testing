@@ -16,7 +16,7 @@ agent_factory = get_global_agent_factory()
 
 # 导入Web平台智能体
 from .web import (
-    ImageAnalyzerAgent,
+    # ImageAnalyzerAgent,
     YAMLGeneratorAgent,
     YAMLExecutorAgent,
     PlaywrightGeneratorAgent,
@@ -31,7 +31,7 @@ __all__ = [
     'agent_factory',
 
     # Web智能体
-    'ImageAnalyzerAgent',
+    # 'ImageAnalyzerAgent',
     'YAMLGeneratorAgent',
     'YAMLExecutorAgent',
     'PlaywrightGeneratorAgent',

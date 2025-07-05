@@ -40,7 +40,8 @@ import {
   BugOutlined,
   LineChartOutlined,
   DatabaseOutlined,
-  SearchOutlined
+  SearchOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
 
@@ -156,6 +157,13 @@ const menuItems: MenuItem[] = [
         icon: <FileTextOutlined />,
         label: '测试报告',
         path: '/web/reports',
+        type: 'item'
+      },
+      {
+        key: 'web-scheduled-tasks',
+        icon: <ClockCircleOutlined />,
+        label: '定时任务',
+        path: '/web/scheduled-tasks',
         type: 'item'
       }
     ]

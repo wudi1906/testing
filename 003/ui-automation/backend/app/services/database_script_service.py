@@ -96,7 +96,12 @@ class DatabaseScriptService:
                     
                     # 重新获取完整数据
                     result = await self.script_repo.get_by_id_with_tags(session, script.id)
-                    return self._db_to_pydantic(result)
+                    updated_script = self._db_to_pydantic(result)
+
+                    # 同步到文件系统
+                    await self._sync_script_to_filesystem(updated_script)
+
+                    return updated_script
                 else:
                     # 创建新脚本
                     if not script.id:
@@ -110,7 +115,12 @@ class DatabaseScriptService:
                     
                     # 重新获取完整数据
                     result = await self.script_repo.get_by_id_with_tags(session, created.id)
-                    return self._db_to_pydantic(result)
+                    new_script = self._db_to_pydantic(result)
+
+                    # 同步到文件系统
+                    await self._sync_script_to_filesystem(new_script)
+
+                    return new_script
                     
         except Exception as e:
             logger.error(f"保存脚本失败: {e}")
@@ -129,26 +139,45 @@ class DatabaseScriptService:
             raise
     
     async def update_script(self, script_id: str, updates: Dict[str, Any]) -> Optional[TestScript]:
-        """更新脚本"""
+        """更新脚本（同时更新数据库和文件系统）"""
         try:
+            updated_script = None
+            content_updated = 'content' in updates
+
+            # 数据库操作 - 使用较短的事务
             async with db_manager.get_session() as session:
+                # 获取原始脚本信息
+                original_script = await self.script_repo.get_by_id_with_tags(session, script_id)
+                if not original_script:
+                    return None
+
                 # 处理标签更新
                 tags = updates.pop('tags', None)
-                
+
                 # 更新脚本基本信息
                 if updates:
                     updated = await self.script_repo.update(session, script_id, **updates)
                     if not updated:
                         return None
-                
+
                 # 更新标签
                 if tags is not None:
                     await self._update_script_tags(session, script_id, tags)
-                
-                # 返回更新后的脚本
+
+                # 获取更新后的脚本
                 result = await self.script_repo.get_by_id_with_tags(session, script_id)
-                return self._db_to_pydantic(result) if result else None
-                
+                updated_script = self._db_to_pydantic(result) if result else None
+
+            # 文件系统同步操作 - 在事务外执行，避免长时间锁定
+            if updated_script and content_updated:
+                try:
+                    await self._sync_script_to_filesystem(updated_script)
+                except Exception as sync_error:
+                    logger.error(f"文件系统同步失败，但数据库更新成功: {script_id} - {sync_error}")
+                    # 不抛出异常，因为数据库更新已成功
+
+            return updated_script
+
         except Exception as e:
             logger.error(f"更新脚本失败: {script_id} - {e}")
             raise
@@ -272,12 +301,81 @@ class DatabaseScriptService:
 
         except Exception as e:
             logger.warning(f"确保会话存在时发生错误: {e}")
-            # 不抛出异常，让脚本保存继续进行
+
+    async def _sync_script_to_filesystem(self, script: TestScript):
+        """同步脚本到文件系统和工作空间（异步执行，不阻塞数据库事务）"""
+        try:
+            from app.utils.file_utils import sync_script_to_workspace
+
+            # 使用工具函数同步脚本到工作空间和存储目录
+            storage_file_path, workspace_file_path = await sync_script_to_workspace(
+                script_name=script.name,
+                script_content=script.content,
+                script_format=script.script_format.value,
+                old_file_path=script.file_path if script.file_path != "" else None
+            )
+
+            # 异步更新数据库中的文件路径（如果路径发生变化）
+            if script.file_path != storage_file_path:
+                # 使用独立的数据库会话，避免影响主事务
+                try:
+                    async with db_manager.get_session() as session:
+                        await self.script_repo.update(session, script.id, file_path=storage_file_path)
+                    logger.info(f"更新数据库文件路径: {script.id} -> {storage_file_path}")
+                except Exception as e:
+                    logger.error(f"更新数据库文件路径失败: {script.id} - {e}")
+
+        except Exception as e:
+            logger.error(f"同步脚本到文件系统失败: {script.id} - {e}")
+            # 不抛出异常，避免影响主要的数据库更新操作
 
     async def get_script_executions(self, script_id: str, limit: int = 20) -> List[ScriptExecutionRecord]:
         """获取脚本执行记录（暂时返回空列表，待实现执行记录功能）"""
         # TODO: 实现执行记录查询
         return []
+
+    async def execute_script(self, script_id: str, execution_config: Dict[str, Any] = None,
+                           environment_variables: Dict[str, str] = None) -> Dict[str, Any]:
+        """执行脚本
+
+        Args:
+            script_id: 脚本ID
+            execution_config: 执行配置
+            environment_variables: 环境变量
+
+        Returns:
+            执行结果信息
+        """
+        try:
+            # 获取脚本
+            script = await self.get_script(script_id)
+            if not script:
+                raise ValueError(f"脚本不存在: {script_id}")
+
+            # 调用脚本执行服务
+            from app.api.v1.endpoints.web.test_script_execution import create_script_execution_session
+
+            # 创建执行会话
+            session_id = await create_script_execution_session(
+                script_content=script.content,
+                script_name=script.name,
+                execution_config=execution_config or {},
+                environment_variables=environment_variables or {}
+            )
+
+            logger.info(f"脚本执行启动: {script_id} - {session_id}")
+            return {
+                "execution_id": session_id,
+                "session_id": session_id,
+                "script_id": script_id,
+                "status": "started",
+                "message": "脚本执行已启动",
+                "sse_endpoint": f"/api/v1/web/execution/stream/{session_id}"
+            }
+
+        except Exception as e:
+            logger.error(f"执行脚本失败: {script_id} - {e}")
+            raise
 
 
 # 全局数据库脚本服务实例

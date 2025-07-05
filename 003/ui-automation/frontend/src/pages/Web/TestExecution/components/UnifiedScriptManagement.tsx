@@ -32,6 +32,7 @@ import {
   ThunderboltOutlined,
   FileTextOutlined,
   EyeOutlined,
+  EditOutlined,
   DeleteOutlined,
   StopOutlined,
   InfoCircleOutlined,
@@ -40,6 +41,7 @@ import {
   CloseCircleOutlined
 } from '@ant-design/icons';
 import { toast } from 'react-hot-toast';
+import CodeEditor from '../../../../components/CodeEditor';
 
 // 导入API服务
 import {
@@ -52,6 +54,7 @@ import {
   searchScripts,
   getScriptStatistics,
   getScript,
+  updateScript,
   deleteScript,
   getAvailableScripts,
   getWorkspaceInfo
@@ -63,6 +66,7 @@ const { Option } = Select;
 interface UnifiedScriptManagementProps {
   onExecutionStart: (sessionId: string, scriptName?: string) => void;
   onBatchExecutionStart: (sessionId: string, scriptNames: string[]) => void;
+  onExecutionComplete?: (sessionId: string, scriptName: string) => void;
 }
 
 interface Script {
@@ -93,7 +97,8 @@ interface ScriptExecutionStatus {
 
 const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
   onExecutionStart,
-  onBatchExecutionStart
+  onBatchExecutionStart,
+  onExecutionComplete
 }) => {
   // 状态管理
   const [scripts, setScripts] = useState<Script[]>([]);
@@ -121,6 +126,13 @@ const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
 
   // 脚本执行状态管理
   const [scriptExecutionStatuses, setScriptExecutionStatuses] = useState<Map<string, ScriptExecutionStatus>>(new Map());
+
+  // 编辑相关状态
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingScript, setEditingScript] = useState<Script | null>(null);
+  const [editorContent, setEditorContent] = useState('');
+  const [isSavingScript, setIsSavingScript] = useState(false);
+  const [editForm] = Form.useForm();
 
   // 加载数据库脚本
   const loadDatabaseScripts = useCallback(async () => {
@@ -398,6 +410,14 @@ const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
       });
 
       toast.success(`脚本 ${scriptName} 执行完成`);
+
+      // 通知父组件
+      if (onExecutionComplete) {
+        const executionStatus = getScriptExecutionStatus(scriptId);
+        if (executionStatus?.sessionId) {
+          onExecutionComplete(executionStatus.sessionId, scriptName);
+        }
+      }
 
       // 清理监控器
       const executionStatus = getScriptExecutionStatus(scriptId);
@@ -728,6 +748,69 @@ const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
     }
   };
 
+  // 编辑脚本
+  const handleEditScript = async (script: Script) => {
+    try {
+      // 只有数据库脚本才能编辑
+      if (script.type !== 'database') {
+        message.warning('只能编辑数据库中的脚本');
+        return;
+      }
+
+      const scriptDetail = await getScript(script.id);
+      setEditingScript(scriptDetail);
+      setEditorContent(scriptDetail.content || '');
+      editForm.setFieldsValue({
+        name: scriptDetail.name,
+        description: scriptDetail.description,
+        category: scriptDetail.category,
+        tags: scriptDetail.tags,
+        priority: scriptDetail.priority || 1
+      });
+      setShowEditModal(true);
+    } catch (error: any) {
+      message.error(`获取脚本详情失败: ${error.message}`);
+    }
+  };
+
+  // 保存脚本编辑
+  const handleSaveScript = async (values: any) => {
+    if (!editingScript || isSavingScript) return;
+
+    setIsSavingScript(true);
+    try {
+      const updateData = {
+        name: values.name,
+        description: values.description,
+        content: editorContent, // 使用编辑器的内容
+        category: values.category,
+        tags: values.tags || [],
+        priority: values.priority || 1
+      };
+
+      await updateScript(editingScript.id, updateData);
+
+      message.success('脚本更新成功');
+      toast.success(`脚本 ${values.name} 更新成功`);
+
+      // 确保对话框关闭和状态重置
+      setShowEditModal(false);
+      setEditingScript(null);
+      setEditorContent('');
+      editForm.resetFields();
+
+      // 重新加载列表
+      await loadScriptsBySource();
+    } catch (error: any) {
+      console.error('更新脚本失败:', error);
+      message.error(`更新脚本失败: ${error.message}`);
+      toast.error('更新失败');
+      // 发生错误时不关闭对话框，让用户可以重试
+    } finally {
+      setIsSavingScript(false);
+    }
+  };
+
   // 删除脚本
   const handleDeleteScript = async (script: Script) => {
     Modal.confirm({
@@ -944,13 +1027,14 @@ const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
               描述
             </Button>
 
-            {/* 查看按钮 */}
+            {/* 编辑按钮 */}
             <Button
               size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleViewScript(record)}
+              icon={<EditOutlined />}
+              onClick={() => handleEditScript(record)}
+              disabled={record.type !== 'database' || getScriptExecutionStatus(record.id)?.status === 'running'}
             >
-              查看
+              编辑
             </Button>
 
             {/* 报告按钮 - 只有执行完成且有报告时才可用 */}
@@ -1486,6 +1570,107 @@ const UnifiedScriptManagement: React.FC<UnifiedScriptManagementProps> = ({
               </div>
             </Space>
           </Space>
+        </Form>
+      </Modal>
+
+      {/* 编辑脚本模态框 */}
+      <Modal
+        title={`编辑脚本 - ${editingScript?.name || ''}`}
+        open={showEditModal}
+        onCancel={() => {
+          setShowEditModal(false);
+          setEditingScript(null);
+          editForm.resetFields();
+        }}
+        footer={null}
+        width={800}
+        destroyOnClose
+      >
+        <Form
+          form={editForm}
+          layout="vertical"
+          onFinish={handleSaveScript}
+        >
+          <Form.Item
+            name="name"
+            label="脚本名称"
+            rules={[{ required: true, message: '请输入脚本名称' }]}
+          >
+            <Input placeholder="输入脚本名称" />
+          </Form.Item>
+
+          <Form.Item
+            name="description"
+            label="脚本描述"
+            rules={[{ required: true, message: '请输入脚本描述' }]}
+          >
+            <Input.TextArea rows={3} placeholder="输入脚本描述" />
+          </Form.Item>
+
+          <Form.Item
+            label="脚本内容"
+            required
+          >
+            <CodeEditor
+              value={editorContent}
+              onChange={setEditorContent}
+              language={editingScript?.script_format === 'yaml' ? 'yaml' : 'typescript'}
+              height={400}
+              placeholder={editingScript?.script_format === 'yaml'
+                ? '# 请输入YAML格式的测试脚本\n- action: navigate\n  target: "https://example.com"'
+                : '// 请输入TypeScript格式的Playwright测试脚本\nimport { test, expect } from "@playwright/test";\n\ntest("测试用例", async ({ page }) => {\n  await page.goto("https://example.com");\n});'
+              }
+            />
+          </Form.Item>
+
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="category" label="分类">
+                <Input placeholder="输入分类（可选）" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="priority" label="优先级">
+                <Select placeholder="选择优先级">
+                  <Option value={1}>低</Option>
+                  <Option value={2}>中</Option>
+                  <Option value={3}>高</Option>
+                </Select>
+              </Form.Item>
+            </Col>
+          </Row>
+
+          <Form.Item name="tags" label="标签">
+            <Select
+              mode="tags"
+              placeholder="输入标签（可选）"
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button
+                type="primary"
+                htmlType="submit"
+                loading={isSavingScript}
+                disabled={isSavingScript}
+              >
+                {isSavingScript ? '保存中...' : '保存更改'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setEditingScript(null);
+                  setEditorContent('');
+                  editForm.resetFields();
+                }}
+                disabled={isSavingScript}
+              >
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
         </Form>
       </Modal>
     </div>

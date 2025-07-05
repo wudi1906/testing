@@ -1,11 +1,11 @@
 """
-Web服务模块
-提供Web平台相关的业务服务
+Web Service Module
+Provides business services related to Web platform
 """
 
-from app.services.web.orchestrator_service import WebOrchestrator, get_web_orchestrator
+from app.services.web.orchestrator_service import WebAgentOrchestrator, get_web_orchestrator
 
 __all__ = [
-    "WebOrchestrator",
+    "WebAgentOrchestrator",
     "get_web_orchestrator"
 ]

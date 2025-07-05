@@ -40,18 +40,30 @@ class DatabaseManager:
             # 创建异步引擎
             self.engine = create_async_engine(
                 database_url,
-                echo=os.getenv('DATABASE_ECHO', 'false').lower() == 'true',
-                pool_size=int(os.getenv('DATABASE_POOL_SIZE', '10')),
-                max_overflow=int(os.getenv('DATABASE_MAX_OVERFLOW', '20')),
-                pool_timeout=int(os.getenv('DATABASE_POOL_TIMEOUT', '30')),
-                pool_recycle=int(os.getenv('DATABASE_POOL_RECYCLE', '3600')),
+                echo=settings.DATABASE_ECHO,
+                pool_size=settings.DATABASE_POOL_SIZE,
+                max_overflow=settings.DATABASE_MAX_OVERFLOW,
+                pool_timeout=settings.DATABASE_POOL_TIMEOUT,
+                pool_recycle=settings.DATABASE_POOL_RECYCLE,
+                # 添加连接参数以优化MySQL连接（aiomysql兼容）
+                connect_args={
+                    "charset": "utf8mb4",
+                    "autocommit": False,
+                    # 设置连接超时
+                    "connect_timeout": 60,
+                    # 设置锁等待超时（MySQL特定）
+                    "init_command": "SET SESSION innodb_lock_wait_timeout = 120"
+                }
             )
-            
+
             # 创建会话工厂
             self.session_factory = async_sessionmaker(
                 bind=self.engine,
                 class_=AsyncSession,
-                expire_on_commit=False
+                expire_on_commit=False,
+                # 设置会话超时
+                autoflush=True,
+                autocommit=False
             )
             
             self._initialized = True

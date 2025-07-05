@@ -461,28 +461,16 @@ web:
             raise
 
     def _prepare_analysis_summary(self, message: WebMultimodalAnalysisResponse) -> str:
-        """准备优化后的分析摘要，充分利用GraphFlow智能体的结构化输出"""
+        """准备优化后的分析摘要，充分利用GraphFlow智能体的结构化输出和数据库页面元素信息"""
         try:
             page_analysis = message.page_analysis
 
-            # 构建增强的UI元素摘要
-            # ui_elements_summary = self._build_enhanced_ui_elements_summary(page_analysis.ui_elements)
-            #
-            # # 构建增强的交互流程摘要
-            # user_flows_summary = self._build_enhanced_user_flows_summary(page_analysis.user_flows)
-            #
-            # # 构建增强的测试场景摘要
-            # test_scenarios_summary = self._build_enhanced_test_scenarios_summary(page_analysis.test_scenarios)
-            #
-            # # 构建质量评估信息
-            # quality_assessment = self._build_quality_assessment_summary(message)
-
-            # 构建完整的增强摘要
+            # 构建基础摘要
             summary = f"""
 ## 页面基本信息
 - **标题**: {page_analysis.page_title}
 - **类型**: {page_analysis.page_type}
-- **主要内容**: {page_analysis.main_content[:300]}...
+- **主要内容**: {page_analysis.main_content}
 
 ## GraphFlow分析结果
 ### UI元素:
@@ -491,20 +479,123 @@ web:
 {page_analysis.user_flows}
 ### 测试场景:
 {page_analysis.test_scenarios}
+"""
 
-## MidScene.js设计指导
+            # 如果有数据库页面元素信息，添加简化的元素指导
+            if page_analysis.database_elements:
+                summary += self._add_database_elements_info_yaml(page_analysis.database_elements)
 
-基于以上分析结果，请重点关注：
-1. **高置信度元素**: 优先使用置信度≥0.8的UI元素进行操作设计
-2. **详细视觉描述**: 利用颜色、位置、形状等特征进行精确元素定位
-3. **结构化流程**: 参考交互流程的步骤序列和验证点设计
-4. **MidScene.js最佳实践**: 使用详细的视觉描述，遵循单一职责原则
+            summary += f"""
+## MidScene.js YAML设计指导
+
+基于以上分析结果、数据库页面元素信息，请重点关注：
+
+1. **精确元素定位**:
+   - 优先使用数据库中提供的元素描述和选择器信息
+   - 结合元素的位置、视觉特征进行YAML action设计
+   - 对于高置信度元素，直接使用其描述进行操作
+
+2. **YAML结构优化**:
+   - 根据元素类型选择最合适的action类型
+   - 对于button类型元素，使用tap action
+   - 对于input类型元素，使用input action
+   - 对于验证操作，使用assert action
+
+3. **测试优先级**:
+   - 优先测试数据库中标记为高优先级的元素
+   - 确保可测试性强的元素都被包含在测试步骤中
+   - 为低置信度元素添加额外的等待时间
+
+4. **选择器策略**:
+   - 当数据库提供了选择器时，在YAML中同时提供AI描述和选择器
+   - 使用AI描述作为主要定位方式，选择器作为备选方案
+   - 确保生成的YAML具有良好的可维护性
 """
             return summary
 
         except Exception as e:
             logger.error(f"准备分析摘要失败: {str(e)}")
             return "分析摘要生成失败"
+
+    def _add_database_elements_info_yaml(self, database_elements: Dict[str, Any]) -> str:
+        """添加数据库页面元素信息（YAML版本）"""
+        try:
+            info = "\n## 页面元素信息\n\n"
+
+            # 处理页面信息
+            pages = database_elements.get("pages", [])
+            elements = database_elements.get("elements", [])
+
+            if pages:
+                # 按页面组织元素信息
+                for page in pages:
+                    page_name = page.get("page_name", "未知页面")
+                    page_desc = page.get("page_description", "")
+                    page_url = page.get("page_url", "")
+
+                    info += f"### 页面名称：{page_name}\n"
+                    if page_desc:
+                        info += f"页面描述：{page_desc}\n"
+                    if page_url:
+                        info += f"页面URL：{page_url}\n"
+
+                    info += "页面元素：\n"
+
+                    # 获取该页面的元素
+                    page_elements = page.get("elements", [])
+                    if page_elements:
+                        for element in page_elements:
+                            element_name = element.get("element_name", "未命名")
+                            element_desc = element.get("element_description", "")
+                            elem_type = element.get("element_type", "unknown")
+                            selector = element.get("selector", "")
+                            position = element.get("position", "")
+                            is_testable = element.get("is_testable", False)
+
+                            info += f"- **{element_name}** ({elem_type})\n"
+                            info += f"  描述：{element_desc}\n"
+                            if selector:
+                                info += f"  选择器：{selector}\n"
+                            if position:
+                                info += f"  位置：{position}\n"
+                            info += f"  可测试：{'是' if is_testable else '否'}\n"
+                            info += "\n"
+                    else:
+                        info += "  暂无元素信息\n\n"
+
+                    info += "\n"
+
+            elif elements:
+                # 如果没有页面分组，直接列出所有元素
+                info += "### 页面名称：未分组页面\n"
+                info += "页面元素：\n"
+
+                for element in elements:
+                    element_name = element.get("element_name", "未命名")
+                    element_desc = element.get("element_description", "")
+                    elem_type = element.get("element_type", "unknown")
+                    selector = element.get("selector", "")
+                    position = element.get("position", "")
+                    is_testable = element.get("is_testable", False)
+
+                    info += f"- **{element_name}** ({elem_type})\n"
+                    info += f"  描述：{element_desc}\n"
+                    if selector:
+                        info += f"  选择器：{selector}\n"
+                    if position:
+                        info += f"  位置：{position}\n"
+                    info += f"  可测试：{'是' if is_testable else '否'}\n"
+                    info += "\n"
+
+            info += "请根据以上页面元素信息生成准确的MidScene.js YAML测试脚本。\n\n"
+
+            return info
+
+        except Exception as e:
+            logger.error(f"添加数据库元素信息失败: {str(e)}")
+            return "\n## 页面元素信息获取失败\n\n"
+
+
 
     def _build_enhanced_ui_elements_summary(self, ui_elements) -> str:
         """构建增强的UI元素摘要，充分利用优化后的结构化数据"""
@@ -1163,23 +1254,40 @@ web:
             }
 
     async def _save_yaml_file(self, yaml_content: str, analysis_id: str) -> str:
-        """保存YAML文件"""
+        """保存YAML文件到工作空间和数据库存储目录"""
         try:
-            # 创建输出目录
-            output_dir = Path("generated_scripts/yaml")
-            output_dir.mkdir(parents=True, exist_ok=True)
+            from app.core.config import settings
 
             # 生成文件名
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"test_{analysis_id}_{timestamp}.yaml"
 
-            # 保存文件
-            file_path = output_dir / filename
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(yaml_content)
+            # 1. 保存到PLAYWRIGHT工作空间（用于执行）
+            workspace_dir = Path(settings.MIDSCENE_SCRIPT_PATH)
+            workspace_dir.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"YAML文件已保存: {file_path}")
-            return str(file_path)
+            # 创建yaml目录
+            yaml_workspace_dir = workspace_dir / "yaml"
+            yaml_workspace_dir.mkdir(exist_ok=True)
+
+            # 保存到工作空间
+            workspace_file_path = yaml_workspace_dir / filename
+            with open(workspace_file_path, "w", encoding="utf-8") as f:
+                f.write(yaml_content)
+            logger.info(f"YAML脚本已保存到工作空间: {workspace_file_path}")
+
+            # 2. 保存到数据库存储目录（用于管理）
+            storage_dir = Path(settings.YAML_OUTPUT_DIR)
+            storage_dir.mkdir(parents=True, exist_ok=True)
+
+            # 保存到存储目录
+            storage_file_path = storage_dir / filename
+            with open(storage_file_path, "w", encoding="utf-8") as f:
+                f.write(yaml_content)
+            logger.info(f"YAML脚本已保存到存储目录: {storage_file_path}")
+
+            # 返回数据库中记录的路径
+            return str(storage_file_path)
 
         except Exception as e:
             logger.error(f"保存YAML文件失败: {str(e)}")

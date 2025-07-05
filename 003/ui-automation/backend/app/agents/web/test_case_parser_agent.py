@@ -171,6 +171,9 @@ class TestCaseElementParserAgent(BaseAgent):
                 message="测试用例元素解析完成"
             )
 
+            # 添加数据库查询结果到响应中
+            response.database_results = database_results
+
             # 5. 发送给脚本生成智能体
             await self._send_to_script_generators(response, message)
 
@@ -253,40 +256,82 @@ class TestCaseElementParserAgent(BaseAgent):
                 }
             }
 
-    async def _query_database_elements(self, analysis_result: Dict[str, Any], 
+    async def _query_database_elements(self, analysis_result: Dict[str, Any],
                                      message: TestCaseElementParseRequest) -> Dict[str, Any]:
         """根据分析结果查询数据库中的页面元素"""
         try:
             await db_manager.initialize()
-            
+
             async with db_manager.get_session() as session:
                 database_results = {
                     "pages": [],
                     "elements": [],
                     "total_pages": 0,
-                    "total_elements": 0
+                    "total_elements": 0,
+                    "selected_page_ids": message.selected_page_ids or []
                 }
 
-                # 查询页面信息
-                for page_info in analysis_result.get("identified_pages", []):
-                    page_name = page_info.get("page_name", "")
-                    if page_name:
-                        pages = await self.page_analysis_repo.search_by_page_name(
-                            session, page_name, limit=10
-                        )
-                        for page in pages:
-                            page_dict = page.to_dict()
-                            # 获取页面元素
-                            elements = await self.page_element_repo.get_by_analysis_id(
-                                session, page.id
+                # 添加调试日志
+                logger.info(f"🔍 开始查询数据库元素，用户选择的页面ID: {message.selected_page_ids}")
+                await self.send_response(f"🔍 开始查询数据库元素，用户选择的页面ID: {message.selected_page_ids}")
+
+                # 1. 优先查询用户选择的页面
+                if message.selected_page_ids:
+                    await self.send_response(f"🎯 查询用户选择的 {len(message.selected_page_ids)} 个页面...")
+                    logger.info(f"🎯 查询用户选择的 {len(message.selected_page_ids)} 个页面: {message.selected_page_ids}")
+
+                    for page_id in message.selected_page_ids:
+                        try:
+                            logger.info(f"🔍 正在查询页面ID: {page_id}")
+                            page = await self.page_analysis_repo.get_by_id(session, page_id)
+                            if page:
+                                page_dict = page.to_dict()
+                                # 获取页面元素
+                                elements = await self.page_element_repo.get_by_analysis_id(
+                                    session, page.id
+                                )
+                                page_dict["elements"] = [elem.to_dict() for elem in elements]
+                                database_results["pages"].append(page_dict)
+
+                                logger.info(f"✅ 成功加载页面: {page.page_name} ({len(elements)} 个元素)")
+                                await self.send_response(f"✅ 已加载页面: {page.page_name} ({len(elements)} 个元素)")
+                            else:
+                                logger.warning(f"⚠️ 页面ID {page_id} 不存在")
+                                await self.send_response(f"⚠️ 页面ID {page_id} 不存在")
+                        except Exception as e:
+                            logger.error(f"查询页面 {page_id} 失败: {str(e)}")
+                            await self.send_response(f"❌ 查询页面 {page_id} 失败: {str(e)}")
+
+                # 2. 如果用户没有选择页面，或者选择的页面都查询失败，根据页面名称查询页面
+                if not message.selected_page_ids and not database_results["pages"]:
+                    logger.info("🔍 用户未选择页面，开始根据页面名称查询")
+                    await self.send_response("🔍 用户未选择页面，开始根据页面名称查询...")
+
+                    # 查询页面信息
+                    for page_info in analysis_result.get("identified_pages", []):
+                        page_name = page_info.get("page_name", "")
+                        if page_name:
+                            logger.info(f"🔍 根据页面名称查询: {page_name}")
+                            pages = await self.page_analysis_repo.search_by_page_name(
+                                session, page_name, limit=10
                             )
-                            page_dict["elements"] = [elem.to_dict() for elem in elements]
-                            database_results["pages"].append(page_dict)
+                            for page in pages:
+                                page_dict = page.to_dict()
+                                # 获取页面元素
+                                elements = await self.page_element_repo.get_by_analysis_id(
+                                    session, page.id
+                                )
+                                page_dict["elements"] = [elem.to_dict() for elem in elements]
+                                database_results["pages"].append(page_dict)
+                                logger.info(f"✅ 根据名称找到页面: {page.page_name} ({len(elements)} 个元素)")
 
                 database_results["total_pages"] = len(database_results["pages"])
                 database_results["total_elements"] = sum(
                     len(page.get("elements", [])) for page in database_results["pages"]
                 )
+
+                logger.info(f"📊 数据库查询完成，总页面数: {database_results['total_pages']}, 总元素数: {database_results['total_elements']}")
+                await self.send_response(f"📊 数据库查询完成，总页面数: {database_results['total_pages']}, 总元素数: {database_results['total_elements']}")
 
                 return database_results
 
@@ -495,6 +540,8 @@ class TestCaseElementParserAgent(BaseAgent):
 
         return recommendations
 
+
+
     async def _send_to_script_generators(self, response: TestCaseElementParseResponse,
                                        message: TestCaseElementParseRequest) -> None:
         """将解析结果发送给脚本生成智能体"""
@@ -533,15 +580,22 @@ class TestCaseElementParserAgent(BaseAgent):
                             )
                             test_steps.append(test_action)
 
-            # 构建页面分析结果
+            # 直接使用用户输入的测试用例内容
+
+            # 准备数据库元素信息
+            database_elements = None
+            if hasattr(response, 'database_results') and response.database_results:
+                database_elements = response.database_results
+
             page_analysis = PageAnalysis(
                 page_title=response.parsed_pages[0].page_name if response.parsed_pages else "测试页面",
                 page_type=response.parsed_pages[0].page_type if response.parsed_pages else "unknown",
-                main_content=response.test_case_content,
+                main_content=message.test_case_content,
                 ui_elements=[elem.description for elem in ui_elements_list],
                 test_steps=test_steps,
                 analysis_summary=f"测试用例解析完成，识别到{len(response.parsed_pages)}个页面，{len(ui_elements_list)}个元素",
-                confidence_score=response.confidence_score
+                confidence_score=response.confidence_score,
+                database_elements=database_elements
             )
 
             # 构建兼容的响应消息

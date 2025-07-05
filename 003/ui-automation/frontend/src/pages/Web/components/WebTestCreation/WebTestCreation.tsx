@@ -2,7 +2,7 @@
  * Web测试创建组件 V2 - 简化版本
  * 支持基于自然语言描述编写测试用例，图片自动生成描述，以及多格式脚本生成
  */
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Card,
   Row,
@@ -28,27 +28,44 @@ import {
 } from '@ant-design/icons';
 import MDEditor from '@uiw/react-md-editor';
 
-import {
-  analyzeImageToDescription,
-  generateTestFromText,
-  getGeneratedScripts,
-  saveScriptFromSession
-} from '../../../../services/api';
+// 移除未使用的API导入
+import { PageAnalysisApi } from '../../../../services/pageAnalysisApi';
 import './WebTestCreation.css';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text, Paragraph } = Typography;
 const { Option } = Select;
 
 const WebTestCreation: React.FC = () => {
   // 基础状态
   const [form] = Form.useForm();
   const [testDescription, setTestDescription] = useState<string>('');
-  const [selectedFormats, setSelectedFormats] = useState<string[]>(['yaml']);
+  const [selectedFormats, setSelectedFormats] = useState<string[]>(['playwright']); // 默认选择第二个选项
   // 移除了activeTab状态，因为只保留手动编写标签页
 
   // 处理状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+
+  // 内容变更检测状态
+  const [lastGeneratedContent, setLastGeneratedContent] = useState<string>('');
+  const [lastGeneratedFormats, setLastGeneratedFormats] = useState<string[]>([]);
+
+  // 页面选择相关状态
+  const [selectedPageIds, setSelectedPageIds] = useState<string[]>([]);
+  const [availablePages, setAvailablePages] = useState<any[]>([]);
+  const [loadingPages, setLoadingPages] = useState(false);
+
+  // 添加调试用的 useEffect 来监控状态变化
+  useEffect(() => {
+    console.log('🔍 selectedPageIds 状态变化:', selectedPageIds);
+  }, [selectedPageIds]);
+
+  useEffect(() => {
+    console.log('🔍 availablePages 状态变化:', availablePages.length, availablePages);
+  }, [availablePages]);
+
+  // 页面分析API实例
+  const pageAnalysisApi = new PageAnalysisApi();
 
   // 图片上传状态
   const [imagePreview, setImagePreview] = useState<string>('');
@@ -58,10 +75,36 @@ const WebTestCreation: React.FC = () => {
   const [analysisLog, setAnalysisLog] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState<string>('');
-  const [infoOutput, setInfoOutput] = useState<string>(''); // 信息输出区域
+  // 移除未使用的infoOutput状态
 
   // 使用ref跟踪分析完成状态，避免闭包问题
   const analysisCompletedRef = useRef(false);
+
+  // 加载可用页面列表
+  useEffect(() => {
+    const loadAvailablePages = async () => {
+      setLoadingPages(true);
+      try {
+        const response = await pageAnalysisApi.getPageList();
+        if (response.data) {
+          // 只显示分析完成的页面
+          const completedPages = response.data.filter(page =>
+            page.analysis_status === 'completed' && page.elements_count > 0
+          );
+          console.log('🔍 加载的可用页面数量:', completedPages.length);
+          console.log('🔍 可用页面列表:', completedPages.map(p => ({ id: p.id, name: p.page_name })));
+          setAvailablePages(completedPages);
+        }
+      } catch (error) {
+        console.error('加载页面列表失败:', error);
+        message.error('加载页面列表失败');
+      } finally {
+        setLoadingPages(false);
+      }
+    };
+
+    loadAvailablePages();
+  }, []);
 
   // 处理图片上传和分析
   const handleImageUpload = useCallback(async (file: any) => {
@@ -107,10 +150,12 @@ const WebTestCreation: React.FC = () => {
         setCurrentStep('建立连接...');
         setAnalysisProgress(20);
 
+        // 使用后端返回的SSE端点建立连接
+        const sseEndpoint = result.sse_endpoint || `/api/v1/web/create/stream-description/${result.session_id}`;
+        console.log('使用SSE端点:', sseEndpoint);
+
         // 建立SSE连接接收流式数据
-        const eventSource = new EventSource(
-          `/api/v1/web/create/stream-description/${result.session_id}`
-        );
+        const eventSource = new EventSource(sseEndpoint);
 
         let finalTestCase = '';
         let currentThought = '';
@@ -122,14 +167,25 @@ const WebTestCreation: React.FC = () => {
           setAnalysisProgress(30);
         };
 
-        eventSource.addEventListener('connected', (event) => {
+        eventSource.addEventListener('connected', () => {
           console.log('已连接到描述生成流');
           setAnalysisLog(prev => prev + '🤖 AI智能体已启动\n');
         });
 
+        // 处理心跳消息
+        eventSource.addEventListener('heartbeat', (event) => {
+          console.log('收到heartbeat心跳消息');
+          // 心跳消息不需要显示在界面上，只用于保持连接
+        });
+
         eventSource.addEventListener('message', (event) => {
           try {
+            console.log('收到message事件:', event);
+            console.log('事件数据:', event.data);
+
             const data = JSON.parse(event.data);
+            console.log('解析后的数据:', data);
+
             if (data.content) {
               // 根据region区分处理
               if (data.region === 'testcase') {
@@ -147,16 +203,21 @@ const WebTestCreation: React.FC = () => {
             }
           } catch (e) {
             console.error('解析SSE消息失败:', e);
-            setAnalysisLog(prev => prev + '⚠️ 消息解析错误\n');
+            console.error('原始事件数据:', event.data);
+            console.error('事件对象:', event);
+            setAnalysisLog(prev => prev + `⚠️ 消息解析错误: ${e.message}\n`);
           }
         });
 
         eventSource.addEventListener('final_result', (event) => {
           try {
+            console.log('收到final_result事件:', event);
+            console.log('final_result事件数据:', event.data);
+
             // 检查是否有data字段且不为undefined
             if (event.data && event.data !== 'undefined') {
               const data = JSON.parse(event.data);
-              console.log('分析完成:', data.content);
+              console.log('分析完成:', data);
               setAnalysisLog(prev => prev + '\n✅ ' + (data.content || '分析完成') + '\n');
               setCurrentStep('分析完成');
               setAnalysisProgress(100);
@@ -187,7 +248,8 @@ const WebTestCreation: React.FC = () => {
             setIsAnalyzingImage(false);
           } catch (e) {
             console.error('解析最终结果失败:', e);
-            setAnalysisLog(prev => prev + '❌ 最终结果解析失败\n');
+            console.error('final_result原始数据:', event.data);
+            setAnalysisLog(prev => prev + `❌ 最终结果解析失败: ${e.message}\n`);
             setCurrentStep('解析错误');
             // 不要因为解析错误就不关闭连接和重置状态
             eventSource.close();
@@ -196,12 +258,13 @@ const WebTestCreation: React.FC = () => {
         });
 
         eventSource.addEventListener('error', (event) => {
+          console.log('收到error事件:', event);
+          console.log('error事件数据:', event.data);
+
           // 首先检查是否是正常的连接关闭
           if (eventSource.readyState === EventSource.CLOSED && analysisCompletedRef.current) {
             console.log('SSE连接正常关闭（error事件）- 分析已完成');
-            eventSource.close();
-            setIsAnalyzingImage(false);
-            return;
+            return; // 不显示错误信息，直接返回
           }
 
           try {
@@ -209,24 +272,39 @@ const WebTestCreation: React.FC = () => {
             if (event.data && event.data !== 'undefined') {
               const data = JSON.parse(event.data);
               console.error('分析错误:', data);
-              setAnalysisLog(prev => prev + `❌ 错误: ${data.error || '未知错误'}\n`);
+              setAnalysisLog(prev => prev + `❌ 错误: ${data.error || data.content || '未知错误'}\n`);
               setCurrentStep('分析失败');
-              message.error(`分析失败: ${data.error || '未知错误'}`);
+              message.error(`分析失败: ${data.error || data.content || '未知错误'}`);
             } else {
-              // 没有具体错误信息的情况
+              // 检查是否是分析完成后的正常关闭
+              if (analysisCompletedRef.current) {
+                console.log('分析已完成，忽略后续错误事件');
+                return;
+              }
+              // 只有在分析未完成时才显示错误
               console.error('SSE错误事件，无具体错误信息');
-              setAnalysisLog(prev => prev + '❌ 连接或处理过程中出现错误\n');
-              setCurrentStep('连接错误');
-              message.error('连接或处理过程中出现错误');
+              setAnalysisLog(prev => prev + '❌ 网络连接异常，请检查网络后重试\n');
+              setCurrentStep('连接异常');
+              message.error('网络连接异常，请检查网络后重试');
             }
           } catch (e) {
+            // 检查是否是分析完成后的正常关闭
+            if (analysisCompletedRef.current) {
+              console.log('分析已完成，忽略解析错误');
+              return;
+            }
             console.error('解析错误消息失败:', e);
-            setAnalysisLog(prev => prev + '❌ 分析过程中出现错误\n');
-            setCurrentStep('解析错误');
-            message.error('分析过程中出现错误');
+            console.error('error事件原始数据:', event.data);
+            setAnalysisLog(prev => prev + `❌ 数据解析异常: ${e.message}\n`);
+            setCurrentStep('解析异常');
+            message.error('数据解析异常，请重试');
           }
-          eventSource.close();
-          setIsAnalyzingImage(false);
+
+          // 只有在分析未完成时才关闭连接和重置状态
+          if (!analysisCompletedRef.current) {
+            eventSource.close();
+            setIsAnalyzingImage(false);
+          }
         });
 
         eventSource.onerror = (error) => {
@@ -235,16 +313,17 @@ const WebTestCreation: React.FC = () => {
           // 检查是否是正常的连接关闭（分析完成后）
           if (eventSource.readyState === EventSource.CLOSED && analysisCompletedRef.current) {
             console.log('SSE连接正常关闭（onerror事件）- 分析已完成');
-            eventSource.close();
-            setIsAnalyzingImage(false);
-            return;
+            return; // 不显示错误信息，直接返回
           }
 
-          setAnalysisLog(prev => prev + '❌ 连接中断\n');
-          setCurrentStep('连接中断');
-          message.error('连接中断，请重试');
-          eventSource.close();
-          setIsAnalyzingImage(false);
+          // 只有在分析未完成时才显示错误和重置状态
+          if (!analysisCompletedRef.current) {
+            setAnalysisLog(prev => prev + '❌ 网络连接中断\n');
+            setCurrentStep('连接中断');
+            message.error('网络连接中断，请检查网络后重试');
+            eventSource.close();
+            setIsAnalyzingImage(false);
+          }
         };
 
         // 设置超时处理
@@ -278,6 +357,18 @@ const WebTestCreation: React.FC = () => {
       return;
     }
 
+    // 检查内容是否有变化
+    const currentContent = testDescription.trim();
+    const currentFormats = [...selectedFormats].sort();
+    const lastFormats = [...lastGeneratedFormats].sort();
+
+    if (lastGeneratedContent === currentContent &&
+        JSON.stringify(currentFormats) === JSON.stringify(lastFormats) &&
+        lastGeneratedContent !== '') {
+      message.warning('内容未修改，无需重复生成');
+      return;
+    }
+
     try {
       setIsGenerating(true);
 
@@ -291,7 +382,23 @@ const WebTestCreation: React.FC = () => {
       formData.append('target_format', selectedFormats.join(','));
       formData.append('additional_context', formValues.additional_context || '');
 
-      // 调用后端API启动解析任务（使用与智能解析相同的接口）
+      // 添加选择的页面ID
+      console.log('🔍 前端 selectedPageIds 状态:', selectedPageIds);
+      console.log('🔍 前端 selectedPageIds 类型:', typeof selectedPageIds);
+      console.log('🔍 前端 selectedPageIds 长度:', selectedPageIds.length);
+      console.log('🔍 前端 selectedPageIds 是否为数组:', Array.isArray(selectedPageIds));
+
+      // 无论是否有选择页面，都发送参数（避免后端接收到None）
+      if (selectedPageIds.length > 0) {
+        const pageIdsString = selectedPageIds.join(',');
+        console.log('🔍 前端发送的页面ID字符串:', pageIdsString);
+        formData.append('selected_page_ids', pageIdsString);
+      } else {
+        console.log('🔍 前端未选择任何页面，发送空字符串');
+        formData.append('selected_page_ids', ''); // 发送空字符串而不是不发送参数
+      }
+
+      // 调用后端API启动解析任务（异步非阻塞）
       const response = await fetch('/api/v1/web/test-case-parser/parse', {
         method: 'POST',
         body: formData,
@@ -304,8 +411,25 @@ const WebTestCreation: React.FC = () => {
       const result = await response.json();
 
       if (result.status === 'success') {
+        // 记录本次生成的内容和格式，用于下次比较
+        setLastGeneratedContent(currentContent);
+        setLastGeneratedFormats([...selectedFormats]);
+
+        // 任务已启动，提示用户
         message.success('测试脚本生成任务已启动');
-        console.log('生成结果:', result);
+        console.log('生成任务启动成功:', result);
+
+        // 如果有SSE端点，可以选择连接监听进度（可选）
+        if (result.sse_endpoint) {
+          console.log('可通过SSE监听进度:', result.sse_endpoint);
+          // 这里可以添加SSE连接逻辑，但为了不阻塞，我们暂时不实现
+        }
+
+        // 提示用户可以在执行页面查看结果
+        setTimeout(() => {
+          message.info('生成的脚本将出现在"执行测试"页面的脚本列表中');
+        }, 2000);
+
       } else {
         throw new Error(result.message || '生成失败');
       }
@@ -315,7 +439,7 @@ const WebTestCreation: React.FC = () => {
     } finally {
       setIsGenerating(false);
     }
-  }, [testDescription, selectedFormats, form]);
+  }, [testDescription, selectedFormats, form, lastGeneratedContent, lastGeneratedFormats, selectedPageIds]);
 
   // 清空所有内容
   const handleClear = useCallback(() => {
@@ -326,6 +450,11 @@ const WebTestCreation: React.FC = () => {
     setAnalysisProgress(0);
     setCurrentStep('');
     analysisCompletedRef.current = false;
+    // 清空重复点击检测状态
+    setLastGeneratedContent('');
+    setLastGeneratedFormats([]);
+    // 清空页面选择
+    setSelectedPageIds([]);
     form.resetFields();
     message.success('已清空所有内容');
   }, [form]);
@@ -577,6 +706,62 @@ const WebTestCreation: React.FC = () => {
                         </Form.Item>
                       </Col>
                     </Row>
+
+                    {/* 页面选择区域 */}
+                    <Row gutter={16}>
+                      <Col span={24}>
+                        <div style={{ marginBottom: 16 }}>
+                          <label style={{
+                            display: 'block',
+                            marginBottom: 8,
+                            fontWeight: 500,
+                            color: 'rgba(0, 0, 0, 0.85)'
+                          }}>
+                            关联页面（可选）
+                          </label>
+                          <Select
+                            mode="multiple"
+                            placeholder="选择已分析的页面，用于获取页面元素信息优化脚本生成"
+                            value={selectedPageIds}
+                            onChange={(value) => {
+                              console.log('🔍 页面选择变化 - 原始值:', value);
+                              console.log('🔍 页面选择变化 - 值类型:', typeof value);
+                              console.log('🔍 页面选择变化 - 是否为数组:', Array.isArray(value));
+                              console.log('🔍 页面选择变化 - 数组长度:', value?.length);
+
+                              // 确保值是数组
+                              const newValue = Array.isArray(value) ? value : [];
+                              console.log('🔍 设置新值:', newValue);
+                              setSelectedPageIds(newValue);
+
+                              // 立即验证状态是否更新
+                              setTimeout(() => {
+                                console.log('🔍 状态更新后验证 - selectedPageIds:', selectedPageIds);
+                              }, 100);
+                            }}
+                            loading={loadingPages}
+                            showSearch
+                            filterOption={(input, option) =>
+                              (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                            }
+                            options={availablePages.map(page => {
+                              console.log('🔍 处理页面选项:', { id: page.id, name: page.page_name, type: typeof page.id });
+                              return {
+                                value: page.id,
+                                label: `${page.page_name} (${page.elements_count}个元素)`,
+                                title: page.page_description || page.page_name
+                              };
+                            })}
+                            maxTagCount={3}
+                            maxTagTextLength={20}
+                            style={{ width: '100%' }}
+                          />
+                          <div style={{ marginTop: 4, fontSize: 12, color: '#666' }}>
+                            💡 选择相关页面可以帮助AI获取准确的页面元素信息，生成更高质量的测试脚本
+                          </div>
+                        </div>
+                      </Col>
+                    </Row>
                   </Form>
                 </div>
 
@@ -810,29 +995,6 @@ const WebTestCreation: React.FC = () => {
                         </Text>
                       </div>
 
-                      {/* 临时测试内容 - 用于验证滚动条 */}
-                      <div style={{
-                        marginTop: 16,
-                        padding: '12px',
-                        background: '#f0f0f0',
-                        borderRadius: '6px',
-                        fontSize: '11px',
-                        color: '#666'
-                      }}>
-                        <Text style={{ fontSize: '11px', color: '#999' }}>
-                          测试滚动内容区域 - 当内容超出容器高度时，右侧应显示滚动条
-                          <br/>这是第2行测试内容
-                          <br/>这是第3行测试内容
-                          <br/>这是第4行测试内容
-                          <br/>这是第5行测试内容
-                          <br/>这是第6行测试内容
-                          <br/>这是第7行测试内容
-                          <br/>这是第8行测试内容
-                          <br/>这是第9行测试内容
-                          <br/>这是第10行测试内容
-                          <br/>滚动条应该在右侧显示
-                        </Text>
-                      </div>
                     </div>
                   )}
                 </div>

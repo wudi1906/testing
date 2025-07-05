@@ -45,7 +45,8 @@ class ScriptExecution(BaseModel):
     # 关系
     script = relationship("TestScript", back_populates="executions")
     batch = relationship("BatchExecution", back_populates="executions")
-    artifacts = relationship("ExecutionArtifact", back_populates="execution", cascade="all, delete-orphan")
+    # 临时注释掉artifacts关系，因为数据库表结构不匹配
+    # artifacts = relationship("ExecutionArtifact", back_populates="execution", cascade="all, delete-orphan")
     
     # 索引
     __table_args__ = (
@@ -82,8 +83,8 @@ class ExecutionArtifact(BaseModel):
     description = Column(Text)
     artifact_metadata = Column(JSON)  # 重命名避免与SQLAlchemy的metadata冲突
     
-    # 关系
-    execution = relationship("ScriptExecution", back_populates="artifacts")
+    # 关系 - 临时注释掉，因为ScriptExecution中的artifacts关系被注释了
+    # execution = relationship("ScriptExecution", back_populates="artifacts")
     
     # 索引
     __table_args__ = (

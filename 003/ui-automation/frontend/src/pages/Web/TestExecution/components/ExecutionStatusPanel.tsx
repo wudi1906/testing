@@ -67,11 +67,13 @@ interface ScriptStatus {
 interface ExecutionStatusPanelProps {
   sessionId: string | null;
   onSessionEnd?: () => void;
+  onExecutionComplete?: (sessionId: string, results?: any) => void;
 }
 
 const ExecutionStatusPanel: React.FC<ExecutionStatusPanelProps> = ({
   sessionId,
-  onSessionEnd
+  onSessionEnd,
+  onExecutionComplete
 }) => {
   const [messages, setMessages] = useState<ExecutionMessage[]>([]);
   const [scriptStatuses, setScriptStatuses] = useState<Record<string, ScriptStatus>>({});
@@ -99,6 +101,7 @@ const ExecutionStatusPanel: React.FC<ExecutionStatusPanelProps> = ({
 
     setSessionStatus('connecting');
     setMessages([]);
+    // 注意：不清空reports，保持之前的报告可见
 
     const eventSource = createScriptExecutionSSE(
       sessionId,
@@ -135,7 +138,23 @@ const ExecutionStatusPanel: React.FC<ExecutionStatusPanelProps> = ({
           } else if (event.type === 'final_result') {
             setSessionStatus('completed');
             toast.success('执行已完成');
-            loadReports();
+
+            // 延迟加载报告，确保后端已保存
+            setTimeout(() => {
+              loadReports();
+            }, 1000);
+
+            // 通知父组件执行已完成
+            if (onExecutionComplete && sessionId) {
+              onExecutionComplete(sessionId, data.result);
+            }
+
+            // 通知脚本管理组件执行完成
+            if ((window as any).handleScriptExecutionComplete) {
+              // 从消息中提取脚本名称
+              const scriptName = data.result?.script_name || data.script_name || '未知脚本';
+              (window as any).handleScriptExecutionComplete(sessionId, scriptName);
+            }
           } else if (event.type === 'error') {
             setSessionStatus('error');
             toast.error('执行出现错误');
@@ -162,6 +181,11 @@ const ExecutionStatusPanel: React.FC<ExecutionStatusPanelProps> = ({
         console.error('SSE连接错误:', error);
         setSessionStatus('error');
         toast.error('连接执行会话失败');
+
+        // 即使出错也通知父组件，以便更新状态
+        if (onExecutionComplete && sessionId) {
+          onExecutionComplete(sessionId, { error: true });
+        }
       },
       (event: Event) => {
         setSessionStatus('connected');
@@ -187,14 +211,22 @@ const ExecutionStatusPanel: React.FC<ExecutionStatusPanelProps> = ({
   // 加载报告
   const loadReports = useCallback(async () => {
     if (!sessionId) return;
-    
+
     try {
       const data = await getScriptSessionReports(sessionId);
       setReports(data.reports);
+      console.log('报告加载成功:', data.reports);
     } catch (error) {
       console.error('加载报告失败:', error);
     }
   }, [sessionId]);
+
+  // 初始加载报告
+  useEffect(() => {
+    if (sessionId) {
+      loadReports();
+    }
+  }, [sessionId, loadReports]);
 
   // 停止执行
   const handleStop = async () => {

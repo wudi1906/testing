@@ -10,6 +10,7 @@ import TestExecution from './TestExecution/TestExecution';
 import UnifiedTestExecution from './TestExecution/UnifiedTestExecution';
 import TestResults from './TestResults/TestResults';
 import TestReports from './TestReports/TestReports';
+import ScheduledTasks from './ScheduledTasks/ScheduledTasks';
 
 const WebModule: React.FC = () => {
   return (
@@ -37,6 +38,9 @@ const WebModule: React.FC = () => {
 
       {/* Web测试报告页面 */}
       <Route path="reports" element={<TestReports />} />
+
+      {/* 定时任务管理页面 */}
+      <Route path="scheduled-tasks" element={<ScheduledTasks />} />
 
       {/* 测试用例解析演示页面 */}
       <Route path="test-case-parser-demo" element={<TestCaseParserDemo />} />

@@ -65,10 +65,12 @@ async def health_check():
 
 @router.post("/parse", response_model=TestCaseParseResponse)
 async def parse_test_case_elements(
+    request: Request,
     test_case_content: str = Form(...),
     test_description: Optional[str] = Form(None),
     target_format: str = Form(default="yaml"),
-    additional_context: Optional[str] = Form(None)
+    additional_context: Optional[str] = Form(None),
+    selected_page_ids: Optional[str] = Form(None)
 ):
     """
     解析测试用例中的页面元素
@@ -77,6 +79,13 @@ async def parse_test_case_elements(
     对返回的数据进行整理分类，为脚本生成智能体提供结构化的页面元素数据。
     """
     try:
+        # 尝试获取原始请求数据进行调试
+        try:
+            content_type = request.headers.get("content-type", "")
+            logger.info(f"🔍 请求 Content-Type: {content_type}")
+        except Exception as e:
+            logger.warning(f"无法获取请求头信息: {e}")
+
         # 验证输入
         if not test_case_content or len(test_case_content.strip()) < 10:
             raise HTTPException(status_code=400, detail="测试用例内容不能为空且至少包含10个字符")
@@ -90,6 +99,20 @@ async def parse_test_case_elements(
         # 记录当前时间
         current_time = datetime.now()
 
+        # 解析选择的页面ID
+        page_ids_list = []
+        logger.info(f"🔍 开始解析 selected_page_ids: '{selected_page_ids}' (类型: {type(selected_page_ids)})")
+
+        if selected_page_ids is not None and selected_page_ids.strip():
+            # 分割并清理页面ID
+            raw_ids = selected_page_ids.split(',')
+            page_ids_list = [pid.strip() for pid in raw_ids if pid.strip()]
+            logger.info(f"🔍 原始分割结果: {raw_ids}")
+            logger.info(f"🔍 清理后的页面ID列表: {page_ids_list}")
+            logger.info(f"🔍 页面ID数量: {len(page_ids_list)}")
+        else:
+            logger.info(f"🔍 selected_page_ids 为空、None 或只包含空白字符: '{selected_page_ids}'")
+
         # 存储会话信息
         active_sessions[session_id] = {
             "status": "processing",
@@ -100,6 +123,7 @@ async def parse_test_case_elements(
                 "description": test_description or "",
                 "target_format": target_format,
                 "additional_context": additional_context or "",
+                "selected_page_ids": page_ids_list,
                 "content_length": len(test_case_content)
             },
             "progress": 0,
@@ -328,7 +352,8 @@ async def process_test_case_parse_task(session_id: str):
             test_case_content=test_case_info["content"],
             test_description=test_case_info["description"],
             target_format=test_case_info["target_format"],
-            additional_context=test_case_info["additional_context"]
+            additional_context=test_case_info["additional_context"],
+            selected_page_ids=test_case_info.get("selected_page_ids", [])
         )
 
         # 发送完成消息

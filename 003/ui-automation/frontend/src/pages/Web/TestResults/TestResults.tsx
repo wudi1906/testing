@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Card,
   Table,
@@ -15,7 +15,17 @@ import {
   Avatar,
   Tooltip,
   Modal,
-  Image
+  Image,
+  Input,
+  Select,
+  DatePicker,
+  message,
+  Popconfirm,
+  Drawer,
+  Descriptions,
+  Alert,
+  Badge,
+  Divider
 } from 'antd';
 import {
   EyeOutlined,
@@ -26,39 +36,110 @@ import {
   ClockCircleOutlined,
   BarChartOutlined,
   FileTextOutlined,
-  PlayCircleOutlined
+  PlayCircleOutlined,
+  SearchOutlined,
+  FilterOutlined,
+  ExportOutlined,
+  DeleteOutlined,
+  InfoCircleOutlined,
+  CalendarOutlined,
+  SyncOutlined
 } from '@ant-design/icons';
 import { motion } from 'framer-motion';
-import { useQuery } from 'react-query';
+import { useQuery, useMutation, useQueryClient } from 'react-query';
+import dayjs from 'dayjs';
 
-import { getExecutionHistory, getPlaywrightExecutionHistory } from '../../../services/api';
+import {
+  getExecutionHistory,
+  getPlaywrightExecutionHistory,
+  executeScriptFromDB,
+  cleanupExecution
+} from '../../../services/api';
+import {
+  getReportViewUrl,
+  openReportInNewWindow,
+  checkReportExists
+} from '../../../services/testReportApi';
 import './TestResults.css';
 
 const { TabPane } = Tabs;
 const { Title, Paragraph, Text } = Typography;
+const { Option } = Select;
+const { RangePicker } = DatePicker;
 
 const TestResults: React.FC = () => {
   const [activeTab, setActiveTab] = useState('yaml');
   const [selectedResult, setSelectedResult] = useState<any>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [filterDrawerVisible, setFilterDrawerVisible] = useState(false);
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [dateRange, setDateRange] = useState<any>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  const queryClient = useQueryClient();
 
   // 获取YAML执行历史
   const { data: yamlHistory, isLoading: yamlLoading, refetch: refetchYaml } = useQuery(
-    'yamlExecutionHistory',
+    ['yamlExecutionHistory', searchText, statusFilter, dateRange],
     () => getExecutionHistory(50),
     {
-      refetchInterval: 10000
+      refetchInterval: autoRefresh ? 10000 : false,
+      keepPreviousData: true
     }
   );
 
   // 获取Playwright执行历史
   const { data: playwrightHistory, isLoading: playwrightLoading, refetch: refetchPlaywright } = useQuery(
-    'playwrightExecutionHistory',
+    ['playwrightExecutionHistory', searchText, statusFilter, dateRange],
     () => getPlaywrightExecutionHistory(50),
     {
-      refetchInterval: 10000
+      refetchInterval: autoRefresh ? 10000 : false,
+      keepPreviousData: true
     }
   );
+
+  // 重新执行脚本的mutation
+  const reExecuteMutation = useMutation(
+    (executionId: string) => executeScriptFromDB(executionId, {}),
+    {
+      onSuccess: (data) => {
+        message.success(`脚本重新执行成功，执行ID: ${data.execution_id}`);
+        queryClient.invalidateQueries(['yamlExecutionHistory']);
+        queryClient.invalidateQueries(['playwrightExecutionHistory']);
+      },
+      onError: (error: any) => {
+        message.error(`重新执行失败: ${error.message}`);
+      }
+    }
+  );
+
+  // 清理执行数据的mutation
+  const cleanupMutation = useMutation(
+    (executionId: string) => cleanupExecution(executionId),
+    {
+      onSuccess: () => {
+        message.success('执行数据清理成功');
+        queryClient.invalidateQueries(['yamlExecutionHistory']);
+        queryClient.invalidateQueries(['playwrightExecutionHistory']);
+      },
+      onError: (error: any) => {
+        message.error(`清理失败: ${error.message}`);
+      }
+    }
+  );
+
+  // 自动刷新控制
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (autoRefresh) {
+        refetchYaml();
+        refetchPlaywright();
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [autoRefresh, refetchYaml, refetchPlaywright]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -92,6 +173,86 @@ const TestResults: React.FC = () => {
       default: return <ClockCircleOutlined style={{ color: '#d9d9d9' }} />;
     }
   };
+
+  // 处理重新执行
+  const handleReExecute = useCallback(async (record: any) => {
+    try {
+      await reExecuteMutation.mutateAsync(record.execution_id);
+    } catch (error) {
+      console.error('重新执行失败:', error);
+    }
+  }, [reExecuteMutation]);
+
+  // 处理下载报告
+  const handleDownloadReport = useCallback(async (record: any) => {
+    try {
+      const hasReport = await checkReportExists(record.execution_id);
+      if (hasReport) {
+        const reportUrl = getReportViewUrl(record.execution_id);
+        const link = document.createElement('a');
+        link.href = reportUrl;
+        link.download = `test_report_${record.execution_id}.html`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        message.success('报告下载已开始');
+      } else {
+        message.warning('该执行记录暂无可用报告');
+      }
+    } catch (error) {
+      message.error('下载报告失败');
+    }
+  }, []);
+
+  // 处理查看报告
+  const handleViewReport = useCallback(async (record: any) => {
+    try {
+      const hasReport = await checkReportExists(record.execution_id);
+      if (hasReport) {
+        openReportInNewWindow(record.execution_id);
+      } else {
+        message.warning('该执行记录暂无可用报告');
+      }
+    } catch (error) {
+      message.error('查看报告失败');
+    }
+  }, []);
+
+  // 处理清理执行数据
+  const handleCleanup = useCallback(async (record: any) => {
+    try {
+      await cleanupMutation.mutateAsync(record.execution_id);
+    } catch (error) {
+      console.error('清理失败:', error);
+    }
+  }, [cleanupMutation]);
+
+  // 过滤数据
+  const filterData = useCallback((data: any[]) => {
+    if (!data) return [];
+
+    return data.filter(item => {
+      // 文本搜索
+      if (searchText && !item.execution_id.toLowerCase().includes(searchText.toLowerCase())) {
+        return false;
+      }
+
+      // 状态过滤
+      if (statusFilter && item.status !== statusFilter) {
+        return false;
+      }
+
+      // 日期范围过滤
+      if (dateRange && dateRange.length === 2) {
+        const itemDate = dayjs(item.start_time);
+        if (!itemDate.isBetween(dateRange[0], dateRange[1], 'day', '[]')) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [searchText, statusFilter, dateRange]);
 
   const yamlColumns = [
     {
@@ -161,19 +322,39 @@ const TestResults: React.FC = () => {
             <Button
               type="text"
               icon={<PlayCircleOutlined />}
-              onClick={() => {
-                // TODO: 实现重新执行逻辑
-              }}
+              loading={reExecuteMutation.isLoading}
+              onClick={() => handleReExecute(record)}
+            />
+          </Tooltip>
+          <Tooltip title="查看报告">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewReport(record)}
             />
           </Tooltip>
           <Tooltip title="下载报告">
             <Button
               type="text"
               icon={<DownloadOutlined />}
-              onClick={() => {
-                // TODO: 实现下载报告逻辑
-              }}
+              onClick={() => handleDownloadReport(record)}
             />
+          </Tooltip>
+          <Tooltip title="清理数据">
+            <Popconfirm
+              title="确定要清理此执行数据吗？"
+              description="清理后将无法恢复"
+              onConfirm={() => handleCleanup(record)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button
+                type="text"
+                icon={<DeleteOutlined />}
+                loading={cleanupMutation.isLoading}
+                danger
+              />
+            </Popconfirm>
           </Tooltip>
         </Space>
       )
@@ -238,14 +419,35 @@ const TestResults: React.FC = () => {
               }}
             />
           </Tooltip>
+          <Tooltip title="查看报告">
+            <Button
+              type="text"
+              icon={<EyeOutlined />}
+              onClick={() => handleViewReport(record)}
+            />
+          </Tooltip>
           <Tooltip title="下载报告">
             <Button
               type="text"
               icon={<DownloadOutlined />}
-              onClick={() => {
-                // TODO: 实现下载报告逻辑
-              }}
+              onClick={() => handleDownloadReport(record)}
             />
+          </Tooltip>
+          <Tooltip title="清理数据">
+            <Popconfirm
+              title="确定要清理此执行数据吗？"
+              description="清理后将无法恢复"
+              onConfirm={() => handleCleanup(record)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button
+                type="text"
+                icon={<DeleteOutlined />}
+                loading={cleanupMutation.isLoading}
+                danger
+              />
+            </Popconfirm>
           </Tooltip>
         </Space>
       )
@@ -269,8 +471,46 @@ const TestResults: React.FC = () => {
     return { total, passed, failed, successRate };
   };
 
-  const yamlStats = calculateStats(yamlHistory?.history || []);
-  const playwrightStats = calculateStats(playwrightHistory?.history || []);
+  // 应用过滤器
+  const filteredYamlHistory = filterData(yamlHistory?.history || []);
+  const filteredPlaywrightHistory = filterData(playwrightHistory?.history || []);
+
+  const yamlStats = calculateStats(filteredYamlHistory);
+  const playwrightStats = calculateStats(filteredPlaywrightHistory);
+
+  // 导出数据
+  const handleExportData = useCallback(() => {
+    const currentData = activeTab === 'yaml' ? filteredYamlHistory : filteredPlaywrightHistory;
+    const csvContent = [
+      ['执行ID', '状态', '开始时间', '执行时长', '进度'].join(','),
+      ...currentData.map(item => [
+        item.execution_id,
+        getStatusText(item.status),
+        new Date(item.start_time).toLocaleString(),
+        item.duration ? `${item.duration.toFixed(1)}s` : '-',
+        `${item.progress || 0}%`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `test_results_${activeTab}_${dayjs().format('YYYY-MM-DD')}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    message.success('数据导出成功');
+  }, [activeTab, filteredYamlHistory, filteredPlaywrightHistory, getStatusText]);
+
+  // 清空过滤器
+  const handleClearFilters = useCallback(() => {
+    setSearchText('');
+    setStatusFilter('');
+    setDateRange(null);
+    message.info('过滤器已清空');
+  }, []);
 
   return (
     <div className="test-results-container">
@@ -279,11 +519,58 @@ const TestResults: React.FC = () => {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
+        {/* 页面头部 */}
+        <Card className="page-header" style={{ marginBottom: 24 }}>
+          <Row justify="space-between" align="middle">
+            <Col>
+              <Title level={2} style={{ margin: 0 }}>
+                <BarChartOutlined className="header-icon" />
+                测试执行结果
+              </Title>
+              <Text type="secondary">查看和管理测试执行历史记录</Text>
+            </Col>
+            <Col>
+              <Space>
+                <Button
+                  icon={<FilterOutlined />}
+                  onClick={() => setFilterDrawerVisible(true)}
+                >
+                  过滤器
+                </Button>
+                <Button
+                  icon={<ExportOutlined />}
+                  onClick={handleExportData}
+                >
+                  导出数据
+                </Button>
+                <Button
+                  icon={autoRefresh ? <SyncOutlined spin /> : <SyncOutlined />}
+                  type={autoRefresh ? 'primary' : 'default'}
+                  onClick={() => setAutoRefresh(!autoRefresh)}
+                >
+                  {autoRefresh ? '自动刷新' : '手动刷新'}
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </Card>
+
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
           size="large"
           className="results-tabs"
+          tabBarExtraContent={
+            <Space>
+              <Badge
+                count={filteredYamlHistory.length + filteredPlaywrightHistory.length}
+                showZero
+                style={{ backgroundColor: '#52c41a' }}
+              >
+                <Text type="secondary">总记录数</Text>
+              </Badge>
+            </Space>
+          }
         >
           <TabPane
             tab={
@@ -338,28 +625,48 @@ const TestResults: React.FC = () => {
 
             {/* YAML执行历史表格 */}
             <Card
-              title="YAML执行历史"
+              title={
+                <Space>
+                  <FileTextOutlined />
+                  YAML执行历史
+                  <Badge count={filteredYamlHistory.length} showZero />
+                </Space>
+              }
               extra={
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => refetchYaml()}
-                  loading={yamlLoading}
-                >
-                  刷新
-                </Button>
+                <Space>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => refetchYaml()}
+                    loading={yamlLoading}
+                    size="small"
+                  >
+                    刷新
+                  </Button>
+                </Space>
               }
             >
+              {filteredYamlHistory.length === 0 && !yamlLoading ? (
+                <Alert
+                  message="暂无数据"
+                  description="当前过滤条件下没有找到执行记录"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              ) : null}
               <Table
                 columns={yamlColumns}
-                dataSource={yamlHistory?.history || []}
+                dataSource={filteredYamlHistory}
                 loading={yamlLoading}
                 rowKey="execution_id"
                 pagination={{
                   pageSize: 10,
                   showSizeChanger: true,
                   showQuickJumper: true,
-                  showTotal: (total) => `共 ${total} 条记录`
+                  showTotal: (total, range) =>
+                    `第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
                 }}
+                scroll={{ x: 800 }}
               />
             </Card>
           </TabPane>
@@ -417,88 +724,211 @@ const TestResults: React.FC = () => {
 
             {/* Playwright执行历史表格 */}
             <Card
-              title="Playwright执行历史"
+              title={
+                <Space>
+                  <PlayCircleOutlined />
+                  Playwright执行历史
+                  <Badge count={filteredPlaywrightHistory.length} showZero />
+                </Space>
+              }
               extra={
-                <Button
-                  icon={<ReloadOutlined />}
-                  onClick={() => refetchPlaywright()}
-                  loading={playwrightLoading}
-                >
-                  刷新
-                </Button>
+                <Space>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={() => refetchPlaywright()}
+                    loading={playwrightLoading}
+                    size="small"
+                  >
+                    刷新
+                  </Button>
+                </Space>
               }
             >
+              {filteredPlaywrightHistory.length === 0 && !playwrightLoading ? (
+                <Alert
+                  message="暂无数据"
+                  description="当前过滤条件下没有找到执行记录"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+              ) : null}
               <Table
                 columns={playwrightColumns}
-                dataSource={playwrightHistory?.history || []}
+                dataSource={filteredPlaywrightHistory}
                 loading={playwrightLoading}
                 rowKey="execution_id"
                 pagination={{
                   pageSize: 10,
                   showSizeChanger: true,
                   showQuickJumper: true,
-                  showTotal: (total) => `共 ${total} 条记录`
+                  showTotal: (total, range) =>
+                    `第 ${range[0]}-${range[1]} 条，共 ${total} 条记录`
                 }}
+                scroll={{ x: 800 }}
               />
             </Card>
           </TabPane>
         </Tabs>
 
+        {/* 过滤器抽屉 */}
+        <Drawer
+          title="过滤器设置"
+          placement="right"
+          onClose={() => setFilterDrawerVisible(false)}
+          open={filterDrawerVisible}
+          width={400}
+        >
+          <Space direction="vertical" style={{ width: '100%' }} size="large">
+            <div>
+              <Text strong>搜索执行ID</Text>
+              <Input
+                placeholder="输入执行ID进行搜索"
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+                prefix={<SearchOutlined />}
+                allowClear
+                style={{ marginTop: 8 }}
+              />
+            </div>
+
+            <div>
+              <Text strong>执行状态</Text>
+              <Select
+                placeholder="选择执行状态"
+                value={statusFilter}
+                onChange={setStatusFilter}
+                allowClear
+                style={{ width: '100%', marginTop: 8 }}
+              >
+                <Option value="completed">已完成</Option>
+                <Option value="passed">通过</Option>
+                <Option value="failed">失败</Option>
+                <Option value="error">错误</Option>
+                <Option value="running">执行中</Option>
+              </Select>
+            </div>
+
+            <div>
+              <Text strong>时间范围</Text>
+              <RangePicker
+                value={dateRange}
+                onChange={setDateRange}
+                style={{ width: '100%', marginTop: 8 }}
+                showTime
+              />
+            </div>
+
+            <Divider />
+
+            <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <Button onClick={handleClearFilters}>
+                清空过滤器
+              </Button>
+              <Button
+                type="primary"
+                onClick={() => setFilterDrawerVisible(false)}
+              >
+                应用过滤器
+              </Button>
+            </Space>
+          </Space>
+        </Drawer>
+
         {/* 详情模态框 */}
         <Modal
-          title="执行详情"
+          title={
+            <Space>
+              <InfoCircleOutlined />
+              执行详情
+              {selectedResult && (
+                <Tag color={getStatusColor(selectedResult.status)}>
+                  {getStatusText(selectedResult.status)}
+                </Tag>
+              )}
+            </Space>
+          }
           open={detailModalVisible}
           onCancel={() => setDetailModalVisible(false)}
-          footer={null}
-          width={800}
+          footer={[
+            <Button key="close" onClick={() => setDetailModalVisible(false)}>
+              关闭
+            </Button>,
+            selectedResult && (
+              <Button
+                key="report"
+                type="primary"
+                icon={<EyeOutlined />}
+                onClick={() => handleViewReport(selectedResult)}
+              >
+                查看报告
+              </Button>
+            )
+          ]}
+          width={900}
         >
           {selectedResult && (
             <div className="result-detail">
-              <Row gutter={[16, 16]}>
-                <Col span={12}>
-                  <Text strong>执行ID: </Text>
+              <Descriptions
+                title="基本信息"
+                bordered
+                column={2}
+                size="small"
+                style={{ marginBottom: 24 }}
+              >
+                <Descriptions.Item label="执行ID">
                   <Text code>{selectedResult.execution_id}</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>状态: </Text>
-                  <Tag color={getStatusColor(selectedResult.status)}>
+                </Descriptions.Item>
+                <Descriptions.Item label="状态">
+                  <Tag color={getStatusColor(selectedResult.status)} icon={getStatusIcon(selectedResult.status)}>
                     {getStatusText(selectedResult.status)}
                   </Tag>
-                </Col>
-                <Col span={12}>
-                  <Text strong>开始时间: </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="开始时间">
                   <Text>{new Date(selectedResult.start_time).toLocaleString()}</Text>
-                </Col>
-                <Col span={12}>
-                  <Text strong>执行时长: </Text>
+                </Descriptions.Item>
+                <Descriptions.Item label="执行时长">
                   <Text>{selectedResult.duration ? `${selectedResult.duration.toFixed(1)}s` : '-'}</Text>
-                </Col>
-              </Row>
+                </Descriptions.Item>
+                <Descriptions.Item label="进度">
+                  <Progress
+                    percent={selectedResult.progress || 0}
+                    size="small"
+                    status={selectedResult.progress === 100 ? 'success' : 'active'}
+                  />
+                </Descriptions.Item>
+                <Descriptions.Item label="创建时间">
+                  <Text>{selectedResult.created_at ? new Date(selectedResult.created_at).toLocaleString() : '-'}</Text>
+                </Descriptions.Item>
+              </Descriptions>
 
               {selectedResult.error_message && (
-                <div style={{ marginTop: 16 }}>
-                  <Text strong>错误信息: </Text>
-                  <div style={{
-                    background: '#fff2f0',
-                    border: '1px solid #ffccc7',
-                    borderRadius: 4,
-                    padding: 12,
-                    marginTop: 8
-                  }}>
-                    <Text type="danger">{selectedResult.error_message}</Text>
-                  </div>
-                </div>
+                <Alert
+                  message="错误信息"
+                  description={selectedResult.error_message}
+                  type="error"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
               )}
 
               {selectedResult.logs && selectedResult.logs.length > 0 && (
-                <div style={{ marginTop: 16 }}>
-                  <Text strong>执行日志: </Text>
+                <Card
+                  title={
+                    <Space>
+                      <FileTextOutlined />
+                      执行日志
+                      <Badge count={selectedResult.logs.length} />
+                    </Space>
+                  }
+                  size="small"
+                  style={{ marginBottom: 16 }}
+                >
                   <div style={{
                     background: '#fafafa',
                     border: '1px solid #d9d9d9',
                     borderRadius: 4,
                     padding: 12,
-                    marginTop: 8,
                     maxHeight: 300,
                     overflow: 'auto'
                   }}>
@@ -506,18 +936,25 @@ const TestResults: React.FC = () => {
                       {selectedResult.logs.join('\n')}
                     </pre>
                   </div>
-                </div>
+                </Card>
               )}
 
               {selectedResult.results && (
-                <div style={{ marginTop: 16 }}>
-                  <Text strong>执行结果: </Text>
+                <Card
+                  title={
+                    <Space>
+                      <CheckCircleOutlined />
+                      执行结果
+                    </Space>
+                  }
+                  size="small"
+                  style={{ marginBottom: 16 }}
+                >
                   <div style={{
                     background: '#f6ffed',
                     border: '1px solid #b7eb8f',
                     borderRadius: 4,
                     padding: 12,
-                    marginTop: 8,
                     maxHeight: 300,
                     overflow: 'auto'
                   }}>
@@ -525,7 +962,43 @@ const TestResults: React.FC = () => {
                       {JSON.stringify(selectedResult.results, null, 2)}
                     </pre>
                   </div>
-                </div>
+                </Card>
+              )}
+
+              {selectedResult.screenshots && selectedResult.screenshots.length > 0 && (
+                <Card
+                  title={
+                    <Space>
+                      <Image />
+                      截图文件
+                      <Badge count={selectedResult.screenshots.length} />
+                    </Space>
+                  }
+                  size="small"
+                >
+                  <Space wrap>
+                    {selectedResult.screenshots.map((screenshot: string, index: number) => (
+                      <Image
+                        key={index}
+                        width={100}
+                        height={60}
+                        src={screenshot}
+                        placeholder={
+                          <div style={{
+                            width: 100,
+                            height: 60,
+                            background: '#f0f0f0',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            <Text type="secondary">截图{index + 1}</Text>
+                          </div>
+                        }
+                      />
+                    ))}
+                  </Space>
+                </Card>
               )}
             </div>
           )}

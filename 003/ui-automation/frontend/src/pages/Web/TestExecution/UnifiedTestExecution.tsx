@@ -4,7 +4,7 @@
  * 支持数据库脚本和文件系统脚本的统一管理和执行
  */
 import React, { useState, useCallback, useEffect } from 'react';
-import { Row, Col, Card, Typography, Space, Button, Tabs } from 'antd';
+import { Row, Col, Card, Typography, Space, Button, Tabs, Badge } from 'antd';
 import { ReloadOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { toast } from 'react-hot-toast';
 
@@ -18,38 +18,100 @@ interface UnifiedTestExecutionProps {
   // 可以添加一些全局配置属性
 }
 
+interface ExecutionSession {
+  sessionId: string;
+  scriptName: string;
+  startTime: string;
+  status: 'running' | 'completed' | 'failed';
+}
+
 const UnifiedTestExecution: React.FC<UnifiedTestExecutionProps> = () => {
   // 状态管理
+  const [activeSessions, setActiveSessions] = useState<ExecutionSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
-  const [currentScriptName, setCurrentScriptName] = useState<string | null>(null);
   const [executionCount, setExecutionCount] = useState(0);
   const [showStatusPanel, setShowStatusPanel] = useState(false);
   const [activeTab, setActiveTab] = useState('script-management');
 
+  // 添加新的执行会话
+  const addExecutionSession = useCallback((sessionId: string, scriptName: string) => {
+    const newSession: ExecutionSession = {
+      sessionId,
+      scriptName,
+      startTime: new Date().toISOString(),
+      status: 'running'
+    };
+
+    setActiveSessions(prev => [...prev, newSession]);
+    setCurrentSessionId(sessionId);
+    setShowStatusPanel(true);
+
+    console.log('添加执行会话:', newSession);
+  }, []);
+
+  // 更新会话状态
+  const updateSessionStatus = useCallback((sessionId: string, status: 'running' | 'completed' | 'failed') => {
+    setActiveSessions(prev =>
+      prev.map(session =>
+        session.sessionId === sessionId
+          ? { ...session, status }
+          : session
+      )
+    );
+  }, []);
+
   // 处理单脚本执行开始
   const handleExecutionStart = useCallback((sessionId: string, scriptName?: string) => {
-    setCurrentSessionId(sessionId);
-    setCurrentScriptName(scriptName || null);
-    setShowStatusPanel(true);
+    const name = scriptName || sessionId;
+    addExecutionSession(sessionId, name);
     setExecutionCount(prev => prev + 1);
-    
-    toast.success(`开始执行: ${scriptName || sessionId}`);
-  }, []);
+
+    toast.success(`开始执行: ${name}`);
+  }, [addExecutionSession]);
 
   // 处理批量执行开始
   const handleBatchExecutionStart = useCallback((sessionId: string, scriptNames: string[]) => {
-    setCurrentSessionId(sessionId);
-    setCurrentScriptName(`批量执行 (${scriptNames.length}个脚本)`);
-    setShowStatusPanel(true);
+    const name = `批量执行 (${scriptNames.length}个脚本)`;
+    addExecutionSession(sessionId, name);
     setExecutionCount(prev => prev + 1);
-    
+
     toast.success(`开始批量执行: ${scriptNames.length}个脚本`);
-  }, []);
+  }, [addExecutionSession]);
 
   // 处理会话结束
-  const handleSessionEnd = useCallback(() => {
-    // 保持状态面板显示，但可以开始新的执行
+  const handleSessionEnd = useCallback((sessionId: string) => {
+    updateSessionStatus(sessionId, 'completed');
     toast.info('执行会话已结束');
+  }, [updateSessionStatus]);
+
+  // 处理脚本执行完成
+  const handleScriptExecutionComplete = useCallback((sessionId: string, scriptName: string) => {
+    console.log('脚本执行完成回调:', sessionId, scriptName);
+
+    // 更新会话状态
+    updateSessionStatus(sessionId, 'completed');
+
+    // 更新执行计数，触发脚本列表刷新
+    setExecutionCount(prev => prev + 1);
+
+    // 显示完成通知
+    toast.success(`脚本 ${scriptName} 执行完成`);
+  }, [updateSessionStatus]);
+
+  // 处理脚本执行失败
+  const handleScriptExecutionFailed = useCallback((sessionId: string, scriptName: string) => {
+    console.log('脚本执行失败回调:', sessionId, scriptName);
+
+    // 更新会话状态
+    updateSessionStatus(sessionId, 'failed');
+
+    // 显示失败通知
+    toast.error(`脚本 ${scriptName} 执行失败`);
+  }, [updateSessionStatus]);
+
+  // 切换到指定会话
+  const switchToSession = useCallback((sessionId: string) => {
+    setCurrentSessionId(sessionId);
   }, []);
 
   // 安全刷新页面
@@ -164,6 +226,7 @@ const UnifiedTestExecution: React.FC<UnifiedTestExecutionProps> = () => {
                       <UnifiedScriptManagement
                         onExecutionStart={handleExecutionStart}
                         onBatchExecutionStart={handleBatchExecutionStart}
+                        onExecutionComplete={handleScriptExecutionComplete}
                       />
                     </div>
                   )
@@ -187,11 +250,58 @@ const UnifiedTestExecution: React.FC<UnifiedTestExecutionProps> = () => {
         {/* 右侧：执行状态面板 */}
         {showStatusPanel && (
           <Col span={10}>
-            <UnifiedExecutionStatusPanel
-              sessionId={currentSessionId}
-              scriptName={currentScriptName}
-              onSessionEnd={handleSessionEnd}
-            />
+            <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+              {/* 会话列表 */}
+              {activeSessions.length > 1 && (
+                <Card size="small" style={{ marginBottom: 16 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Text strong>活动会话 ({activeSessions.length})</Text>
+                  </div>
+                  <div style={{ maxHeight: 120, overflowY: 'auto' }}>
+                    {activeSessions.map((session) => (
+                      <div
+                        key={session.sessionId}
+                        style={{
+                          padding: '4px 8px',
+                          marginBottom: 4,
+                          borderRadius: 4,
+                          backgroundColor: session.sessionId === currentSessionId ? '#e6f7ff' : '#f5f5f5',
+                          cursor: 'pointer',
+                          border: session.sessionId === currentSessionId ? '1px solid #1890ff' : '1px solid transparent'
+                        }}
+                        onClick={() => switchToSession(session.sessionId)}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Text ellipsis style={{ flex: 1, marginRight: 8 }}>
+                            {session.scriptName}
+                          </Text>
+                          <Space size={4}>
+                            <Badge
+                              status={
+                                session.status === 'running' ? 'processing' :
+                                session.status === 'completed' ? 'success' : 'error'
+                              }
+                            />
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                              {new Date(session.startTime).toLocaleTimeString()}
+                            </Text>
+                          </Space>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              )}
+
+              {/* 当前会话状态面板 */}
+              <div style={{ flex: 1 }}>
+                <UnifiedExecutionStatusPanel
+                  sessionId={currentSessionId}
+                  scriptName={activeSessions.find(s => s.sessionId === currentSessionId)?.scriptName || null}
+                  onSessionEnd={handleSessionEnd}
+                />
+              </div>
+            </div>
           </Col>
         )}
       </Row>
@@ -215,21 +325,26 @@ const UnifiedTestExecution: React.FC<UnifiedTestExecutionProps> = () => {
           <Text type="secondary" style={{ fontSize: 12 }}>
             统一脚本执行系统 v1.0
           </Text>
+          {activeSessions.length > 0 && (
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              活动会话: {activeSessions.length} | 运行中: {activeSessions.filter(s => s.status === 'running').length}
+            </Text>
+          )}
           {currentSessionId && (
             <Text type="secondary" style={{ fontSize: 12 }}>
-              当前会话: {currentSessionId.slice(-8)}
+              当前: {currentSessionId.slice(-8)}
             </Text>
           )}
         </Space>
         <Space>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            状态: {showStatusPanel ? '执行中' : '就绪'}
+            状态: {activeSessions.some(s => s.status === 'running') ? '执行中' : '就绪'}
           </Text>
           <div style={{
             width: 8,
             height: 8,
             borderRadius: '50%',
-            backgroundColor: showStatusPanel ? '#52c41a' : '#d9d9d9'
+            backgroundColor: activeSessions.some(s => s.status === 'running') ? '#52c41a' : '#d9d9d9'
           }} />
         </Space>
       </div>

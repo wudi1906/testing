@@ -20,6 +20,7 @@ class Project(BaseModel):
     # 关系
     sessions = relationship("Session", back_populates="project", cascade="all, delete-orphan")
     test_scripts = relationship("TestScript", back_populates="project", cascade="all, delete-orphan")
+    scheduled_tasks = relationship("ScheduledTask", back_populates="project", cascade="all, delete-orphan")
     
     # 索引
     __table_args__ = (

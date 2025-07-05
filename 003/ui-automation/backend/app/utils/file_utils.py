@@ -137,31 +137,105 @@ async def save_yaml_content(content: str, session_id: str, filename: Optional[st
 async def save_playwright_content(content: str, session_id: str, filename: Optional[str] = None) -> str:
     """
     保存Playwright内容到文件
-    
+
     Args:
         content: Playwright TypeScript内容
         session_id: 会话ID
         filename: 可选的文件名
-    
+
     Returns:
         str: 文件路径
     """
     try:
         if not filename:
             filename = f"test_script_{session_id}.ts"
-        
+
         file_path = Path(settings.PLAYWRIGHT_OUTPUT_DIR) / filename
         file_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         async with aiofiles.open(file_path, 'w', encoding='utf-8') as f:
             await f.write(content)
-        
+
         logger.info(f"Playwright文件保存成功: {file_path}")
         return str(file_path)
-        
+
     except Exception as e:
         logger.error(f"保存Playwright文件失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"保存Playwright文件失败: {str(e)}")
+
+
+async def sync_script_to_workspace(script_name: str, script_content: str, script_format: str, old_file_path: Optional[str] = None) -> Tuple[str, str]:
+    """
+    同步脚本到工作空间和存储目录
+
+    Args:
+        script_name: 脚本名称
+        script_content: 脚本内容
+        script_format: 脚本格式 ('yaml' 或 'playwright')
+        old_file_path: 旧文件路径（用于清理）
+
+    Returns:
+        Tuple[str, str]: (存储目录文件路径, 工作空间文件路径)
+    """
+    try:
+        # 确定文件扩展名和目录
+        if script_format.lower() == 'yaml':
+            extension = "yaml"
+            storage_dir = Path(settings.YAML_OUTPUT_DIR)
+            workspace_subdir = "yaml"
+        else:
+            extension = "ts"
+            storage_dir = Path(settings.PLAYWRIGHT_OUTPUT_DIR)
+            workspace_subdir = "e2e"
+
+        # 确保目录存在
+        storage_dir.mkdir(parents=True, exist_ok=True)
+        workspace_dir = Path(settings.MIDSCENE_SCRIPT_PATH) / workspace_subdir
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        # 生成安全的文件名
+        safe_name = "".join(c for c in script_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        safe_name = safe_name.replace(' ', '_')
+
+        # 为Playwright脚本添加.spec后缀
+        if script_format.lower() == 'playwright':
+            if not safe_name.endswith('.spec'):
+                safe_name = f"{safe_name}.spec"
+
+        filename = f"{safe_name}.{extension}"
+        storage_file_path = storage_dir / filename
+        workspace_file_path = workspace_dir / filename
+
+        # 清理旧文件
+        if old_file_path and Path(old_file_path).exists():
+            try:
+                Path(old_file_path).unlink()
+                logger.info(f"删除旧存储文件: {old_file_path}")
+
+                # 同时清理工作空间中的旧文件
+                old_filename = Path(old_file_path).name
+                old_workspace_file = workspace_dir / old_filename
+                if old_workspace_file.exists():
+                    old_workspace_file.unlink()
+                    logger.info(f"删除旧工作空间文件: {old_workspace_file}")
+            except Exception as e:
+                logger.warning(f"清理旧文件失败: {old_file_path} - {e}")
+
+        # 保存到存储目录
+        async with aiofiles.open(storage_file_path, 'w', encoding='utf-8') as f:
+            await f.write(script_content)
+        logger.info(f"脚本已保存到存储目录: {storage_file_path}")
+
+        # 保存到工作空间
+        async with aiofiles.open(workspace_file_path, 'w', encoding='utf-8') as f:
+            await f.write(script_content)
+        logger.info(f"脚本已保存到工作空间: {workspace_file_path}")
+
+        return str(storage_file_path), str(workspace_file_path)
+
+    except Exception as e:
+        logger.error(f"同步脚本到工作空间失败: {e}")
+        raise HTTPException(status_code=500, detail=f"同步脚本失败: {str(e)}")
 
 
 def cleanup_old_files(directory: str, max_age_days: int = 7):
