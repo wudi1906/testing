@@ -217,7 +217,7 @@ class RequirementRepository(BaseRepository[Requirement]):
         """搜索需求"""
         try:
             query = select(Requirement)
-            
+
             # 关键词搜索
             search_conditions = [
                 Requirement.title.contains(keyword),
@@ -225,25 +225,57 @@ class RequirementRepository(BaseRepository[Requirement]):
                 Requirement.requirement_id.contains(keyword)
             ]
             query = query.where(or_(*search_conditions))
-            
+
             # 添加过滤条件
             if project_id:
                 query = query.where(Requirement.project_id == project_id)
             if requirement_type:
                 query = query.where(Requirement.requirement_type == requirement_type)
-            
+
             # 排序和限制
             query = query.order_by(desc(Requirement.created_at)).limit(limit)
-            
+
             result = await session.execute(query)
             requirements = result.scalars().all()
-            
+
             logger.info(f"搜索关键词 '{keyword}' 找到 {len(requirements)} 个需求")
             return requirements
-            
+
         except Exception as e:
             logger.error(f"搜索需求失败: {str(e)}")
             return []
+
+    async def requirement_exists(self, session: AsyncSession, requirement_id: str) -> bool:
+        """检查需求是否存在"""
+        try:
+            result = await session.execute(
+                select(Requirement).where(Requirement.id == requirement_id)
+            )
+            requirement = result.scalar_one_or_none()
+            return requirement is not None
+
+        except Exception as e:
+            logger.error(f"检查需求是否存在失败: {str(e)}")
+            return False
+
+    async def get_requirement_by_id(self, session: AsyncSession, requirement_id: str) -> Optional[Requirement]:
+        """根据ID获取需求"""
+        try:
+            result = await session.execute(
+                select(Requirement).where(Requirement.id == requirement_id)
+            )
+            requirement = result.scalar_one_or_none()
+
+            if requirement:
+                logger.info(f"获取需求成功: {requirement_id}")
+            else:
+                logger.warning(f"需求不存在: {requirement_id}")
+
+            return requirement
+
+        except Exception as e:
+            logger.error(f"获取需求失败: {str(e)}")
+            return None
 
 
 class TestCaseRequirementRepository(BaseRepository[TestCaseRequirement]):

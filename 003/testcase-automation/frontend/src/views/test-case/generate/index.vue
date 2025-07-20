@@ -173,7 +173,7 @@
                   :multiple="true"
                   :max-size="500"
                   :max-count="10"
-                  accepted-types=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.json,.yaml,.yml"
+                  accepted-types=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.json,.yaml,.yml,.mp4,.avi,.mov,.wmv,.flv,.webm"
                   @change="handleFileChange"
                   @upload-success="handleFileUploadSuccess"
                   @upload-error="handleFileUploadError"

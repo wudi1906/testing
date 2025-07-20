@@ -19,7 +19,7 @@ from app.core.agents.base import BaseAgent
 from app.core.types import TopicTypes, AgentTypes, AGENT_NAMES
 from app.core.messages.test_case import (
     DocumentParseRequest, DocumentParseResponse,
-    TestCaseGenerationRequest, TestCaseData
+    TestCaseData
 )
 from app.core.enums import TestType, TestLevel, Priority, InputSource
 from app.agents.database.requirement_saver_agent import RequirementSaveRequest
@@ -147,9 +147,9 @@ class DocumentParserAgent(BaseAgent):
                 }
             )
 
-            # 发送到测试用例生成智能体
-            await self.send_response("🔄 转发到测试用例生成智能体进行后续处理...", region="info")
-            await self._send_to_test_case_generator(response)
+            # 发送到测试点提取智能体
+            await self.send_response("🔄 转发到测试点提取智能体进行专业测试点分析...", region="info")
+            await self._send_to_test_point_extractor(response)
 
         except Exception as e:
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -1096,29 +1096,48 @@ class DocumentParserAgent(BaseAgent):
         }
         return mapping.get(priority_str, Priority.P2)
 
-    async def _send_to_test_case_generator(self, response: DocumentParseResponse):
-        """发送到测试用例生成智能体"""
+    async def _send_to_test_point_extractor(self, response: DocumentParseResponse):
+        """发送到测试点提取智能体"""
         try:
-            generation_request = TestCaseGenerationRequest(
+            from app.core.messages.test_case import TestPointExtractionRequest
+
+            # 构建需求解析结果
+            requirement_analysis_result = {
+                "source_type": "document",
+                "document_name": response.file_name,
+                "document_content": response.parse_result,
+                "requirements": [tc.model_dump() for tc in response.test_cases],
+                "business_processes": response.parse_result.get("business_processes", []),
+                "functional_requirements": response.parse_result.get("functional_requirements", []),
+                "non_functional_requirements": response.parse_result.get("non_functional_requirements", []),
+                "constraints": response.parse_result.get("constraints", []),
+                "assumptions": response.parse_result.get("assumptions", [])
+            }
+
+            extraction_request = TestPointExtractionRequest(
                 session_id=response.session_id,
-                source_type="document",
-                source_data=response.model_dump(),
-                test_cases=response.test_cases,
-                generation_config={
-                    "auto_save": True,
-                    "generate_mind_map": True
-                }
+                requirement_analysis_result=requirement_analysis_result,
+                extraction_config={
+                    "enable_functional_testing": True,
+                    "enable_non_functional_testing": True,
+                    "enable_integration_testing": True,
+                    "enable_acceptance_testing": True,
+                    "enable_boundary_testing": True,
+                    "enable_exception_testing": True,
+                    "test_depth": "comprehensive"
+                },
+                test_strategy="document_driven"
             )
-            
+
             await self.publish_message(
-                generation_request,
-                topic_id=TopicId(type=TopicTypes.TEST_CASE_GENERATOR.value, source=self.id.key)
+                extraction_request,
+                topic_id=TopicId(type=TopicTypes.TEST_POINT_EXTRACTOR.value, source=self.id.key)
             )
-            
-            logger.info(f"已发送到测试用例生成智能体: {response.session_id}")
+
+            logger.info(f"已发送到测试点提取智能体: {response.session_id}")
 
         except Exception as e:
-            logger.error(f"发送到测试用例生成智能体失败: {str(e)}")
+            logger.error(f"发送到测试点提取智能体失败: {str(e)}")
 
     async def _save_requirements_to_database(
         self,

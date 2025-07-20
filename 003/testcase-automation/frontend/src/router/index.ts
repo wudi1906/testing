@@ -103,6 +103,26 @@ const routes: RouteRecordRaw[] = [
         }
       },
       {
+        path: 'detail/:id',
+        name: 'TestCaseDetail',
+        component: () => import('@/views/test-case/detail/index.vue'),
+        meta: {
+          title: '测试用例详情',
+          icon: 'Document',
+          showInMenu: false
+        }
+      },
+      {
+        path: 'edit/:id',
+        name: 'TestCaseEdit',
+        component: () => import('@/views/test-case/edit/index.vue'),
+        meta: {
+          title: '编辑测试用例',
+          icon: 'Edit',
+          showInMenu: false
+        }
+      },
+      {
         path: 'requirements',
         name: 'RequirementManagement',
         component: () => import('@/views/requirement/RequirementManagement.vue'),
