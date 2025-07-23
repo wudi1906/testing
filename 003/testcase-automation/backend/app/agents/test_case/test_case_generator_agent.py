@@ -260,13 +260,13 @@ class TestCaseGeneratorAgent(BaseAgent):
                 generation_strategy="test_point_driven"
             )
 
-            # 暂时注释：调用RAG系统查询需求相关的上下文，根据实际业务需求进行优化
-            # await self.send_response("🔍 调用RAG知识库检索相关上下文...", region="progress")
-            # rag_context = await self._retrieve_rag_context(message)
-            #
-            # # 解析RAG上下文并构建增强提示
-            # enhanced_context = self._parse_rag_context(rag_context) if rag_context else {}
-            enhanced_context = None
+            # 调用RAG系统查询需求相关的上下文
+            await self.send_response("🔍 调用RAG知识库检索相关上下文...", region="progress")
+            rag_context = await self._retrieve_rag_context(message)
+
+            # 解析RAG上下文并构建增强提示
+            enhanced_context = self._parse_rag_context(rag_context) if rag_context else {}
+
             await self.send_response(
                 "🏭 正在基于专业测试点和RAG上下文生成企业级测试用例...",
                 region="progress"

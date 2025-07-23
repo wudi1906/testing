@@ -245,6 +245,54 @@ class RequirementRepository(BaseRepository[Requirement]):
             logger.error(f"搜索需求失败: {str(e)}")
             return []
 
+    async def search_requirements_by_keywords(
+        self,
+        session: AsyncSession,
+        keywords: List[str],
+        project_id: Optional[str] = None,
+        requirement_type: Optional[RequirementType] = None,
+        limit: int = 50
+    ) -> List[Requirement]:
+        """根据多个关键词搜索需求"""
+        try:
+            if not keywords:
+                return []
+
+            query = select(Requirement)
+
+            # 构建多关键词搜索条件
+            all_search_conditions = []
+            for keyword in keywords:
+                keyword_conditions = [
+                    Requirement.title.contains(keyword),
+                    Requirement.description.contains(keyword),
+                    Requirement.requirement_id.contains(keyword)
+                ]
+                all_search_conditions.append(or_(*keyword_conditions))
+
+            # 使用OR连接所有关键词条件（匹配任一关键词即可）
+            if all_search_conditions:
+                query = query.where(or_(*all_search_conditions))
+
+            # 添加过滤条件
+            if project_id:
+                query = query.where(Requirement.project_id == project_id)
+            if requirement_type:
+                query = query.where(Requirement.requirement_type == requirement_type)
+
+            # 排序和限制
+            query = query.order_by(desc(Requirement.created_at)).limit(limit)
+
+            result = await session.execute(query)
+            requirements = result.scalars().all()
+
+            logger.info(f"搜索关键词 {keywords} 找到 {len(requirements)} 个需求")
+            return requirements
+
+        except Exception as e:
+            logger.error(f"根据关键词搜索需求失败: {str(e)}")
+            return []
+
     async def requirement_exists(self, session: AsyncSession, requirement_id: str) -> bool:
         """检查需求是否存在"""
         try:

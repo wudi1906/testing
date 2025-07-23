@@ -41,6 +41,16 @@ const routes: RouteRecordRaw[] = [
           showInMenu: true
         }
       },
+      {
+        path: 'test-video-upload',
+        name: 'TestVideoUpload',
+        component: () => import('@/views/test-video-upload.vue'),
+        meta: {
+          title: '视频上传测试',
+          icon: 'VideoPlay',
+          showInMenu: true
+        }
+      },
 
       {
         path: 'management',
