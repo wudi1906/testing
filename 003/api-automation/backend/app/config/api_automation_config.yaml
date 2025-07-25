@@ -1,0 +1,208 @@
+# 接口自动化智能体系统配置文件
+
+# 系统基础配置
+system:
+  name: "API自动化智能体系统"
+  version: "1.0.0"
+  description: "基于AutoGen框架的接口自动化测试系统"
+  debug: true
+  log_level: "INFO"
+
+# 智能体配置
+agents:
+  # API文档解析智能体
+  api_doc_parser:
+    enabled: true
+    timeout: 300  # 5分钟
+    max_file_size: 52428800  # 50MB
+    supported_formats:
+      - "swagger"
+      - "openapi" 
+      - "postman"
+      - "json"
+      - "yaml"
+    confidence_threshold: 0.7
+    
+  # 依赖分析智能体
+  dependency_analyzer:
+    enabled: true
+    timeout: 180  # 3分钟
+    analysis_types:
+      - "data_dependency"
+      - "execution_order"
+      - "authentication"
+      - "prerequisite"
+    max_dependency_depth: 5
+    cycle_detection: true
+    
+  # 测试脚本生成智能体
+  test_script_generator:
+    enabled: true
+    timeout: 600  # 10分钟
+    framework: "pytest"
+    templates_dir: "./templates"
+    output_dir: "./generated_tests"
+    test_types:
+      - "functional"
+      - "integration"
+      - "boundary"
+      - "error"
+    include_allure: true
+    include_data_driven: true
+    
+  # 测试执行智能体
+  test_executor:
+    enabled: true
+    timeout: 1800  # 30分钟
+    max_parallel_workers: 5
+    default_retry_count: 3
+    report_formats:
+      - "allure"
+      - "html"
+      - "json"
+    log_level: "INFO"
+    
+  # 日志记录智能体
+  log_recorder:
+    enabled: true
+    storage_path: "./logs"
+    retention_days: 30
+    max_log_size: "100MB"
+    alert_levels:
+      - "ERROR"
+      - "CRITICAL"
+
+# 文件存储配置
+storage:
+  uploads_dir: "./uploads"
+  reports_dir: "./reports"
+  logs_dir: "./logs"
+  temp_dir: "./temp"
+  max_storage_size: "10GB"
+  cleanup_interval: 24  # 小时
+
+# 测试框架配置
+testing:
+  pytest:
+    markers:
+      - "api: API测试"
+      - "smoke: 冒烟测试"
+      - "regression: 回归测试"
+      - "integration: 集成测试"
+      - "performance: 性能测试"
+      - "security: 安全测试"
+    plugins:
+      - "allure-pytest"
+      - "pytest-html"
+      - "pytest-json-report"
+      - "pytest-xdist"  # 并行执行
+    addopts: "-v --tb=short --strict-markers"
+    
+  allure:
+    results_dir: "./reports/allure-results"
+    report_dir: "./reports/allure-report"
+    history_dir: "./reports/allure-history"
+    categories_file: "./config/allure-categories.json"
+
+# API配置
+api:
+  host: "0.0.0.0"
+  port: 8000
+  reload: true
+  workers: 1
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8080"
+  max_request_size: "100MB"
+  timeout: 300
+
+# 数据库配置 (可选)
+database:
+  enabled: false
+  url: "sqlite:///./api_automation.db"
+  echo: false
+  pool_size: 10
+  max_overflow: 20
+
+# 监控配置
+monitoring:
+  enabled: true
+  metrics_interval: 60  # 秒
+  health_check_interval: 30  # 秒
+  alert_thresholds:
+    error_rate: 0.1  # 10%
+    response_time: 5.0  # 5秒
+    memory_usage: 0.8  # 80%
+    disk_usage: 0.9  # 90%
+
+# 安全配置
+security:
+  enable_auth: false
+  api_key_header: "X-API-Key"
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+  file_upload:
+    allowed_extensions:
+      - ".json"
+      - ".yaml"
+      - ".yml"
+    max_file_size: "50MB"
+    scan_for_malware: false
+
+# 环境配置
+environments:
+  development:
+    base_url: "http://localhost:8000"
+    debug: true
+    log_level: "DEBUG"
+    
+  testing:
+    base_url: "http://test-api.example.com"
+    debug: false
+    log_level: "INFO"
+    
+  staging:
+    base_url: "http://staging-api.example.com"
+    debug: false
+    log_level: "WARNING"
+    
+  production:
+    base_url: "http://api.example.com"
+    debug: false
+    log_level: "ERROR"
+
+# 通知配置
+notifications:
+  enabled: false
+  channels:
+    email:
+      enabled: false
+      smtp_server: "smtp.example.com"
+      smtp_port: 587
+      username: ""
+      password: ""
+      from_address: "noreply@example.com"
+      
+    webhook:
+      enabled: false
+      url: "https://hooks.slack.com/services/..."
+      
+    dingtalk:
+      enabled: false
+      webhook_url: ""
+      secret: ""
+
+# 性能配置
+performance:
+  max_concurrent_sessions: 10
+  session_timeout: 3600  # 1小时
+  cache_enabled: true
+  cache_ttl: 300  # 5分钟
+  
+# 扩展配置
+extensions:
+  custom_parsers: []
+  custom_generators: []
+  custom_executors: []
+  plugins_dir: "./plugins"

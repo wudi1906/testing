@@ -1,0 +1,74 @@
+[
+  {
+    "name": "API连接错误",
+    "description": "API服务连接失败或超时",
+    "messageRegex": ".*(ConnectionError|Timeout|ConnectTimeout).*",
+    "traceRegex": ".*requests\\.exceptions\\.(ConnectionError|Timeout|ConnectTimeout).*"
+  },
+  {
+    "name": "认证失败",
+    "description": "API认证相关错误",
+    "messageRegex": ".*(401|Unauthorized|Authentication|Auth).*",
+    "traceRegex": ".*401.*"
+  },
+  {
+    "name": "权限不足",
+    "description": "API权限验证失败",
+    "messageRegex": ".*(403|Forbidden|Permission).*",
+    "traceRegex": ".*403.*"
+  },
+  {
+    "name": "资源不存在",
+    "description": "请求的资源不存在",
+    "messageRegex": ".*(404|Not Found|NotFound).*",
+    "traceRegex": ".*404.*"
+  },
+  {
+    "name": "请求参数错误",
+    "description": "请求参数格式或内容错误",
+    "messageRegex": ".*(400|Bad Request|BadRequest|Invalid|Parameter).*",
+    "traceRegex": ".*400.*"
+  },
+  {
+    "name": "服务器内部错误",
+    "description": "API服务器内部错误",
+    "messageRegex": ".*(500|Internal Server Error|ServerError).*",
+    "traceRegex": ".*500.*"
+  },
+  {
+    "name": "响应格式错误",
+    "description": "API响应格式不符合预期",
+    "messageRegex": ".*(JSON|XML|Parse|Format|Schema).*",
+    "traceRegex": ".*(JSONDecodeError|ParseError|SchemaError).*"
+  },
+  {
+    "name": "断言失败",
+    "description": "测试断言验证失败",
+    "messageRegex": ".*(AssertionError|assert).*",
+    "traceRegex": ".*AssertionError.*"
+  },
+  {
+    "name": "数据依赖错误",
+    "description": "测试数据依赖问题",
+    "messageRegex": ".*(Dependency|Prerequisite|Setup).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "性能问题",
+    "description": "API响应时间超出预期",
+    "messageRegex": ".*(Performance|Slow|Timeout|Duration).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "环境问题",
+    "description": "测试环境相关问题",
+    "messageRegex": ".*(Environment|Config|Setup|Infrastructure).*",
+    "traceRegex": ".*"
+  },
+  {
+    "name": "测试脚本错误",
+    "description": "测试脚本本身的错误",
+    "messageRegex": ".*(SyntaxError|ImportError|AttributeError|NameError).*",
+    "traceRegex": ".*(SyntaxError|ImportError|AttributeError|NameError).*"
+  }
+]
