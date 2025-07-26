@@ -188,11 +188,19 @@ const stats = ref({
 // 业务流程配置
 const workflows = [
   {
+    id: 'interface-management',
+    title: '接口管理',
+    description: '管理API接口信息，上传文档自动解析接口并存储到数据库',
+    icon: 'mdi:api',
+    color: '#2080f0',
+    route: '/api-automation/interface-management'
+  },
+  {
     id: 'document-workflow',
-    title: '文档解析与分析',
+    title: '文档工作流',
     description: '上传API文档，智能解析接口结构，生成测试脚本',
     icon: 'mdi:file-upload',
-    color: '#2080f0',
+    color: '#18a058',
     route: '/api-automation/document-workflow'
   },
   {
@@ -200,7 +208,7 @@ const workflows = [
     title: '测试脚本管理',
     description: '查看、编辑和管理生成的测试脚本',
     icon: 'mdi:script-text',
-    color: '#18a058',
+    color: '#f0a020',
     route: '/api-automation/test-management'
   },
   {
@@ -208,7 +216,7 @@ const workflows = [
     title: '测试执行与报告',
     description: '执行测试脚本，查看执行结果和测试报告',
     icon: 'mdi:play-circle',
-    color: '#f0a020',
+    color: '#d03050',
     route: '/api-automation/test-execution'
   },
   {
@@ -216,7 +224,7 @@ const workflows = [
     title: '定时任务管理',
     description: '配置和管理定时执行的测试任务',
     icon: 'mdi:clock-outline',
-    color: '#d03050',
+    color: '#722ed1',
     route: '/api-automation/scheduled-tasks'
   }
 ]

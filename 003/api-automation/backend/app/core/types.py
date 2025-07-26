@@ -11,6 +11,7 @@ class AgentTypes(Enum):
     # 接口自动化智能体
     API_DOC_PARSER = "api_doc_parser"
     API_ANALYZER = "api_analyzer"
+    API_DATA_PERSISTENCE = "api_data_persistence"  # 新增数据持久化智能体
     API_TEST_CASE_GENERATOR = "api_test_case_generator"  # 新增测试用例生成智能体
     TEST_SCRIPT_GENERATOR = "test_script_generator"
     TEST_EXECUTOR = "test_executor"
@@ -36,6 +37,7 @@ class TopicTypes(Enum):
     # 接口自动化相关主题
     API_DOC_PARSER = "api_doc_parser"
     API_ANALYZER = "api_analyzer"  # 修正为与工厂一致的名称
+    API_DATA_PERSISTENCE = "api_data_persistence"  # 新增数据持久化主题
     API_TEST_CASE_GENERATOR = "api_test_case_generator"  # 新增测试用例生成主题
     TEST_SCRIPT_GENERATOR = "test_script_generator"
     TEST_EXECUTOR = "test_executor"
@@ -94,6 +96,8 @@ AGENT_NAMES: Dict[str, str] = {
     # 接口自动化智能体
     AgentTypes.API_DOC_PARSER.value: "API文档解析智能体",
     AgentTypes.API_ANALYZER.value: "接口分析智能体",
+    AgentTypes.API_DATA_PERSISTENCE.value: "API数据持久化智能体",
+    AgentTypes.API_TEST_CASE_GENERATOR.value: "API测试用例生成智能体",
     AgentTypes.TEST_SCRIPT_GENERATOR.value: "测试脚本生成智能体",
     AgentTypes.TEST_EXECUTOR.value: "测试执行智能体",
     AgentTypes.LOG_RECORDER.value: "日志记录智能体",

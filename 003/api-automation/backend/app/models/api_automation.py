@@ -763,3 +763,113 @@ class OperationLog(BaseModel, TimestampMixin):
             ("operation_type", "result_status"),
             ("created_at", "operation_type")
         ]
+
+
+# 新增接口管理相关模型
+
+class ApiInterface(BaseModel, TimestampMixin):
+    """接口信息表 - 存储解析后的接口详细信息"""
+    interface_id = fields.CharField(max_length=100, unique=True, description="接口ID", index=True)
+    document = fields.ForeignKeyField("models.ApiDocument", related_name="interfaces", description="关联文档", index=True)
+    endpoint_id = fields.CharField(max_length=100, null=True, description="原始端点ID", index=True)
+
+    # 基本信息
+    name = fields.CharField(max_length=200, description="接口名称")
+    path = fields.CharField(max_length=500, description="接口路径", index=True)
+    method = fields.CharEnumField(HttpMethod, description="HTTP方法", index=True)
+    summary = fields.TextField(default="", description="接口摘要")
+    description = fields.TextField(default="", description="接口详细描述")
+
+    # API信息
+    api_title = fields.CharField(max_length=200, null=True, description="API标题")
+    api_version = fields.CharField(max_length=50, null=True, description="API版本")
+    base_url = fields.CharField(max_length=500, null=True, description="基础URL")
+
+    # 分类和标签
+    tags = fields.JSONField(default=list, description="标签列表")
+    category = fields.CharField(max_length=100, null=True, description="接口分类")
+
+    # 认证和安全
+    auth_required = fields.BooleanField(default=False, description="是否需要认证")
+    auth_type = fields.CharField(max_length=50, null=True, description="认证类型")
+    security_schemes = fields.JSONField(default=dict, description="安全方案")
+
+    # 状态和质量
+    is_deprecated = fields.BooleanField(default=False, description="是否已废弃")
+    confidence_score = fields.FloatField(default=0.0, description="解析置信度")
+    complexity_score = fields.FloatField(default=0.0, description="复杂度评分")
+
+    # 扩展信息
+    extended_info = fields.JSONField(default=dict, description="扩展信息")
+    raw_data = fields.JSONField(default=dict, description="原始解析数据")
+
+    # 状态管理
+    is_active = fields.BooleanField(default=True, description="是否激活")
+
+    class Meta:
+        table = "api_interfaces"
+        table_description = "接口信息表"
+        indexes = [
+            ("document_id", "method", "path"),
+            ("name", "is_active"),
+            ("category", "tags"),
+            ("confidence_score", "complexity_score")
+        ]
+
+
+class ApiParameter(BaseModel, TimestampMixin):
+    """接口参数表"""
+    parameter_id = fields.CharField(max_length=100, unique=True, description="参数ID", index=True)
+    interface = fields.ForeignKeyField("models.ApiInterface", related_name="parameters", description="关联接口", index=True)
+
+    # 参数基本信息
+    name = fields.CharField(max_length=100, description="参数名称", index=True)
+    location = fields.CharField(max_length=20, description="参数位置")  # header, query, path, body, form
+    data_type = fields.CharField(max_length=50, description="数据类型")  # string, integer, boolean, object, array
+    required = fields.BooleanField(default=False, description="是否必需")
+
+    # 参数描述
+    description = fields.TextField(default="", description="参数描述")
+    example = fields.TextField(null=True, description="示例值")
+    default_value = fields.TextField(null=True, description="默认值")
+
+    # 约束条件
+    constraints = fields.JSONField(default=dict, description="约束条件")  # min, max, pattern, enum等
+
+    # 嵌套结构（用于object类型）
+    schema = fields.JSONField(null=True, description="参数结构定义")
+
+    class Meta:
+        table = "api_parameters"
+        table_description = "接口参数表"
+        indexes = [
+            ("interface_id", "location"),
+            ("name", "required"),
+            ("data_type", "location")
+        ]
+
+
+class ApiResponse(BaseModel, TimestampMixin):
+    """接口响应表"""
+    response_id = fields.CharField(max_length=100, unique=True, description="响应ID", index=True)
+    interface = fields.ForeignKeyField("models.ApiInterface", related_name="responses", description="关联接口", index=True)
+
+    # 响应基本信息
+    status_code = fields.CharField(max_length=10, description="状态码", index=True)  # 200, 400, 500等
+    description = fields.TextField(default="", description="响应描述")
+    content_type = fields.CharField(max_length=100, default="application/json", description="内容类型")
+
+    # 响应结构
+    response_schema = fields.JSONField(null=True, description="响应结构定义")
+    example = fields.JSONField(null=True, description="响应示例")
+
+    # 响应头
+    headers = fields.JSONField(default=dict, description="响应头定义")
+
+    class Meta:
+        table = "api_responses"
+        table_description = "接口响应表"
+        indexes = [
+            ("interface_id", "status_code"),
+            ("status_code", "content_type")
+        ]

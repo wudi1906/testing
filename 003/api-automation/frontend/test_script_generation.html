@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>脚本生成功能测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+        .test-section h3 {
+            color: #555;
+            margin-top: 0;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .loading {
+            background-color: #ffc107 !important;
+        }
+        .result {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 脚本生成功能测试</h1>
+        
+        <div class="test-section">
+            <h3>📋 功能说明</h3>
+            <p>本页面用于测试接口脚本生成功能。输入接口ID后，系统会：</p>
+            <ol>
+                <li>调用后端API接口</li>
+                <li>触发接口分析智能体</li>
+                <li>启动脚本生成智能体</li>
+                <li>执行数据持久化智能体</li>
+                <li>将生成的脚本存储到数据库</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🧪 脚本生成测试</h3>
+            <div class="form-group">
+                <label for="interfaceId">接口ID:</label>
+                <input type="text" id="interfaceId" placeholder="请输入接口ID，例如：test_interface_001" value="test_interface_001">
+            </div>
+            <div class="form-group">
+                <label for="apiUrl">API地址:</label>
+                <input type="text" id="apiUrl" placeholder="后端API地址" value="http://localhost:8000/api/v1/interface/interfaces">
+            </div>
+            <button id="generateBtn" onclick="generateScript()">生成脚本</button>
+            <button onclick="clearResult()">清空结果</button>
+            <div id="result" class="result" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>📊 测试步骤</h3>
+            <ol>
+                <li>确保后端服务已启动</li>
+                <li>确保数据库中存在对应的接口记录</li>
+                <li>输入有效的接口ID</li>
+                <li>点击"生成脚本"按钮</li>
+                <li>观察返回结果</li>
+                <li>检查数据库中的test_scripts表是否有新记录</li>
+            </ol>
+        </div>
+    </div>
+
+    <script>
+        async function generateScript() {
+            const interfaceId = document.getElementById('interfaceId').value.trim();
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const resultDiv = document.getElementById('result');
+            const generateBtn = document.getElementById('generateBtn');
+            
+            if (!interfaceId) {
+                showResult('请输入接口ID', 'error');
+                return;
+            }
+            
+            if (!apiUrl) {
+                showResult('请输入API地址', 'error');
+                return;
+            }
+            
+            // 显示加载状态
+            generateBtn.disabled = true;
+            generateBtn.classList.add('loading');
+            generateBtn.textContent = '生成中...';
+            showResult('正在发送请求...', 'info');
+            
+            try {
+                const response = await fetch(`${apiUrl}/${interfaceId}/generate-script`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    const resultText = `✅ 请求成功！
+状态码: ${response.status}
+响应数据:
+${JSON.stringify(data, null, 2)}
+
+📋 说明:
+- success: ${data.success ? '成功' : '失败'}
+- message: ${data.message}
+- session_id: ${data.session_id || '无'}
+- task_id: ${data.task_id || '无'}
+
+🔍 后续步骤:
+1. 脚本生成是异步过程，请稍等片刻
+2. 可以查看后端日志了解处理进度
+3. 检查数据库test_scripts表是否有新记录`;
+                    
+                    showResult(resultText, 'success');
+                } else {
+                    showResult(`❌ 请求失败！
+状态码: ${response.status}
+错误信息: ${data.detail || data.message || '未知错误'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ 网络错误！
+错误信息: ${error.message}
+请检查:
+1. 后端服务是否启动
+2. API地址是否正确
+3. 网络连接是否正常`, 'error');
+            } finally {
+                // 恢复按钮状态
+                generateBtn.disabled = false;
+                generateBtn.classList.remove('loading');
+                generateBtn.textContent = '生成脚本';
+            }
+        }
+        
+        function showResult(text, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.textContent = text;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+        }
+        
+        function clearResult() {
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'none';
+            resultDiv.textContent = '';
+        }
+        
+        // 支持回车键提交
+        document.getElementById('interfaceId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                generateScript();
+            }
+        });
+    </script>
+</body>
+</html>

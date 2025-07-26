@@ -50,6 +50,7 @@ export default {
   // 文档管理
   uploadDocument: (formData) => request.post('/api-automation/upload-document', formData),
   getParseStatus: (sessionId) => request.get(`/api-automation/parse-status/${sessionId}`),
+  getApiAutomationParseStatus: (sessionId) => request.get(`/api-automation/parse-status/${sessionId}`),
   triggerDocumentParse: (sessionId, config = {}) => request.post(`/api-automation/parse-document/${sessionId}`, config),
   parseApiDocument: (data = {}) => request.post('/api-automation/parse-document', data),
   getParseResult: (params = {}) => request.get('/api-automation/parse-result', { params }),
@@ -57,6 +58,22 @@ export default {
   getDocumentDetail: (params = {}) => request.get('/api-automation/document-detail', { params }),
 
   // 接口管理
+  // 文档管理API
+  getApiDocuments: (params = {}) => request.get('/interface/documents', { params }),
+  getApiDocumentDetail: (docId) => request.get(`/interface/documents/${docId}`),
+  deleteApiDocument: (docId) => request.delete(`/interface/documents/${docId}`),
+  uploadApiDocument: (formData) => request.post('/interface/upload-document', formData),
+  parseApiDocument: (sessionId, config = {}) => request.post(`/interface/parse-document/${sessionId}`, config),
+  getParseStatus: (sessionId) => request.get(`/interface/parse-status/${sessionId}`),
+
+  // 接口管理API
+  getApiInterfaces: (params = {}) => request.get('/interface/interfaces', { params }),
+  getApiInterfaceDetail: (interfaceId) => request.get(`/interface/interfaces/${interfaceId}`),
+  getInterfaceStatistics: () => request.get('/interface/statistics'),
+  generateInterfaceScript: (interfaceId) => request.post(`/interface/interfaces/${interfaceId}/generate-script`),
+  getScriptGenerationStatus: (sessionId) => request.get(`/interface/script-generation/${sessionId}/status`),
+
+  // 原有接口管理（保持兼容）
   getApiEndpoints: (params = {}) => request.get('/api-automation/endpoints', { params }),
   analyzeApiEndpoints: (data = {}) => request.post('/api-automation/analyze-endpoints', data),
   getAnalysisResult: (params = {}) => request.get('/api-automation/analysis-result', { params }),

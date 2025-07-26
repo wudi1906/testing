@@ -70,24 +70,29 @@ class AgentFactory:
         logger.info("API自动化智能体工厂初始化完成")
 
     def _register_api_automation_agents(self) -> None:
-        """注册API自动化智能体类"""
+        """注册API自动化智能体类 - 重新设计版本"""
         try:
-            # 导入API自动化智能体
+            # 导入重新设计的API自动化智能体
             from app.agents.api_automation.api_doc_parser_agent import ApiDocParserAgent
             from app.agents.api_automation.api_analyzer_agent import ApiAnalyzerAgent
-            from app.agents.api_automation.api_test_case_generator_agent import ApiTestCaseGeneratorAgent
-            from app.agents.api_automation.test_generator_agent import TestScriptGeneratorAgent
-            from app.agents.api_automation.test_executor_agent import TestExecutorAgent
-            from app.agents.api_automation.log_recorder_agent import LogRecorderAgent
+            from app.agents.api_automation.api_data_persistence_agent import ApiDataPersistenceAgent
+            from app.agents.api_automation.test_case_generator_agent import TestCaseGeneratorAgent
+            from app.agents.api_automation.script_generator_agent import ScriptGeneratorAgent
+            from app.agents.api_automation.script_executor_agent import TestExecutorAgent
+
+            # 暂时注释掉有导入问题的智能体
+            # from app.agents.api_automation.log_recorder_agent import LogRecorderAgent
 
             # 注册智能体类
             self._agent_classes.update({
                 AgentTypes.API_DOC_PARSER.value: ApiDocParserAgent,
                 AgentTypes.API_ANALYZER.value: ApiAnalyzerAgent,
-                AgentTypes.API_TEST_CASE_GENERATOR.value: ApiTestCaseGeneratorAgent,
-                AgentTypes.TEST_SCRIPT_GENERATOR.value: TestScriptGeneratorAgent,
-                AgentTypes.TEST_EXECUTOR.value: TestExecutorAgent,
-                AgentTypes.LOG_RECORDER.value: LogRecorderAgent,
+                AgentTypes.API_DATA_PERSISTENCE.value: ApiDataPersistenceAgent,
+                AgentTypes.API_TEST_CASE_GENERATOR.value: TestCaseGeneratorAgent,
+                AgentTypes.TEST_SCRIPT_GENERATOR.value: ScriptGeneratorAgent,
+                AgentTypes.TEST_EXECUTOR.value: TestExecutorAgent,  # ✅ 已修复
+                # 暂时注释掉有问题的智能体
+                # AgentTypes.LOG_RECORDER.value: LogRecorderAgent,
             })
 
             logger.info(f"已注册 {len(self._agent_classes)} 个API自动化智能体类")
@@ -513,6 +518,34 @@ class AgentFactory:
 - **未来演进规划**：考虑技术发展趋势和业务增长的长期规划
 
 请始终保持客观、专业、深度的分析风格，确保分析结果能够为企业级API生态的持续改进提供战略指导。"""
+            },
+            AgentTypes.API_DATA_PERSISTENCE.value: {
+                "name": "api_data_persistence",
+                "description": "企业级API数据持久化专家",
+                "capabilities": ["数据库操作", "事务管理", "数据完整性保证", "性能优化", "错误处理"],
+                "system_message": """你是一个企业级API数据持久化专家，专门负责将API解析结果安全、高效地存储到数据库中。
+
+## 🎯 核心职责
+1. **数据持久化**：将API文档解析结果存储到数据库
+2. **数据完整性**：确保存储数据的完整性和一致性
+3. **事务管理**：使用数据库事务确保操作的原子性
+4. **性能优化**：优化数据库操作性能，支持批量处理
+5. **错误处理**：完善的错误处理和恢复机制
+
+## 🔧 技术能力
+- **数据库设计**：理解关系型数据库设计原则
+- **ORM操作**：熟练使用Tortoise ORM进行数据操作
+- **事务处理**：正确使用数据库事务保证数据一致性
+- **性能优化**：批量操作、索引优化、查询优化
+- **数据验证**：确保数据格式和约束的正确性
+
+## 📊 存储策略
+1. **分层存储**：API文档 -> 接口信息 -> 参数/响应
+2. **关联维护**：正确维护表之间的外键关系
+3. **数据清理**：更新时清理旧数据，避免数据冗余
+4. **备份策略**：重要数据的备份和恢复机制
+
+请确保所有数据操作都是安全、可靠、高效的。"""
             },
             AgentTypes.API_TEST_CASE_GENERATOR.value: {
                 "name": "api_test_case_generator",
@@ -2213,6 +2246,10 @@ class AgentFactory:
                     "topic_type": TopicTypes.API_ANALYZER.value,
                 },
                 {
+                    "agent_type": AgentTypes.API_DATA_PERSISTENCE.value,
+                    "topic_type": TopicTypes.API_DATA_PERSISTENCE.value,
+                },
+                {
                     "agent_type": AgentTypes.API_TEST_CASE_GENERATOR.value,
                     "topic_type": TopicTypes.API_TEST_CASE_GENERATOR.value,
                 },
@@ -2479,6 +2516,7 @@ class AgentFactory:
                 agent_topic_mapping = {
                     AgentTypes.API_DOC_PARSER.value: TopicTypes.API_DOC_PARSER.value,
                     AgentTypes.API_ANALYZER.value: TopicTypes.API_ANALYZER.value,
+                    AgentTypes.API_DATA_PERSISTENCE.value: TopicTypes.API_DATA_PERSISTENCE.value,
                     AgentTypes.API_TEST_CASE_GENERATOR.value: TopicTypes.API_TEST_CASE_GENERATOR.value,
                     AgentTypes.TEST_SCRIPT_GENERATOR.value: TopicTypes.TEST_SCRIPT_GENERATOR.value,
                     AgentTypes.TEST_EXECUTOR.value: TopicTypes.TEST_EXECUTOR.value,

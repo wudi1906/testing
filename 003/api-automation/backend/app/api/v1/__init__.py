@@ -10,7 +10,7 @@ from .menus import menus_router
 from .roles import roles_router
 from .users import users_router
 from .endpoints.api_automation import router as api_automation_router
-from .endpoints.upload_standalone import router as upload_standalone_router
+from .endpoints.interface_management import router as interface_management_router
 
 v1_router = APIRouter()
 
@@ -22,4 +22,4 @@ v1_router.include_router(apis_router, prefix="/api", dependencies=[DependPermiss
 v1_router.include_router(depts_router, prefix="/dept", dependencies=[DependPermission])
 v1_router.include_router(auditlog_router, prefix="/auditlog", dependencies=[DependPermission])
 v1_router.include_router(api_automation_router, prefix="/api-automation", tags=["接口自动化"])
-v1_router.include_router(upload_standalone_router, prefix="/upload", tags=["文件上传"])
+v1_router.include_router(interface_management_router, prefix="/interface", tags=["接口管理"])

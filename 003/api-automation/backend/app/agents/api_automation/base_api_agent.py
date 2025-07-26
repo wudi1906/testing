@@ -128,7 +128,7 @@ class BaseApiAutomationAgent(BaseAgent):
                 if self.assistant_agent is None:
                     self._create_fallback_assistant_agent()
     
-    async def _run_assistant_agent(self, task: str) -> Optional[str]:
+    async def _run_assistant_agent(self, task: str, stream: bool = False) -> Optional[str]:
         """运行AssistantAgent获取结果"""
         try:
             await self._ensure_assistant_agent()
@@ -136,20 +136,22 @@ class BaseApiAutomationAgent(BaseAgent):
             if self.assistant_agent is None:
                 logger.error("AssistantAgent未能成功创建")
                 return None
-            
-            stream = self.assistant_agent.run_stream(task=task)
-            result_content = ""
-            
-            async for event in stream:
-                if isinstance(event, ModelClientStreamingChunkEvent):
-                    # 流式输出处理
-                    continue
-                if isinstance(event, TaskResult):
-                    messages = event.messages
-                    if messages and hasattr(messages[-1], 'content'):
-                        result_content = messages[-1].content
-                        break
-            
+            if stream:
+                stream = self.assistant_agent.run_stream(task=task)
+                result_content = ""
+                async for event in stream:
+                    if isinstance(event, ModelClientStreamingChunkEvent):
+                        # 流式输出处理
+                        continue
+                    if isinstance(event, TaskResult):
+                        messages = event.messages
+                        if messages and hasattr(messages[-1], 'content'):
+                            result_content = messages[-1].content
+                            break
+            else:
+                result = await self.assistant_agent.run(task=task)
+                result_content = result.messages[-1].content if result.messages else ""
+
             return result_content
             
         except Exception as e:

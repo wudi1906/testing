@@ -11,17 +11,20 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
 
+from autogen_agentchat.base import TaskResult
+from autogen_agentchat.messages import ModelClientStreamingChunkEvent
 from autogen_core import message_handler, type_subscription, MessageContext, TopicId
 from loguru import logger
 from pydantic import BaseModel, Field
 
 from app.agents.api_automation.base_api_agent import BaseApiAutomationAgent
-from app.core.types import AgentTypes, AGENT_NAMES, TopicTypes
-from app.core.messages.api_automation import (
-    TestExecutionRequest, TestExecutionResponse,
-    TestResultInfo
+from app.core.types import AgentTypes, TopicTypes
+
+# 导入重新设计的数据模型
+from .schemas import (
+    TestExecutionInput, TestExecutionOutput, TestResult,
+    ScriptExecutionResult, GeneratedScript
 )
-from app.core.enums import ExecutionStatus
 
 
 @type_subscription(topic_type=TopicTypes.TEST_EXECUTOR.value)
@@ -72,45 +75,49 @@ class TestExecutorAgent(BaseApiAutomationAgent):
 
     @message_handler
     async def handle_test_execution_request(
-        self, 
-        message: TestExecutionRequest, 
+        self,
+        message: TestExecutionInput,
         ctx: MessageContext
     ) -> None:
-        """处理测试执行请求"""
+        """处理测试执行请求 - 使用新的数据模型"""
         start_time = datetime.now()
         self.execution_metrics["total_executions"] += 1
-        
+
         try:
-            logger.info(f"开始执行测试: {message.execution_id}")
-            
+            logger.info(f"开始执行测试: {message.session_id}")
+
             # 准备执行环境
             await self._prepare_execution_environment(message)
-            
+
             # 执行测试
             execution_result = await self._execute_tests(message)
 
             # 使用大模型分析执行结果
             analysis_result = await self._intelligent_analyze_execution_results(
                 execution_result,
-                message.test_config
+                message.execution_config
             )
 
             # 生成报告
             report_files = await self._generate_reports(
                 execution_result,
                 analysis_result,
-                message.execution_id
+                message.session_id
             )
 
             # 解析测试结果
-            test_results = self._parse_test_results(execution_result)
-            
-            # 构建响应
-            response = TestExecutionResponse(
+            script_results = self._parse_script_results(execution_result)
+
+            # 构建响应 - 使用新的数据模型
+            end_time = datetime.now()
+            response = TestExecutionOutput(
                 session_id=message.session_id,
-                doc_id=message.doc_id,
-                execution_id=str(uuid.uuid4()),
-                results=test_results,
+                document_id=message.document_id,
+                overall_status="success" if execution_result.get("success", False) else "failed",
+                start_time=start_time,
+                end_time=end_time,
+                total_duration=(end_time - start_time).total_seconds(),
+                script_results=script_results,
                 summary={
                     "total_tests": execution_result.get("total_tests", 0),
                     "passed_tests": execution_result.get("passed_tests", 0),
@@ -118,8 +125,8 @@ class TestExecutorAgent(BaseApiAutomationAgent):
                     "execution_time": execution_result.get("execution_time", 0),
                     "success_rate": execution_result.get("success_rate", 0)
                 },
-                report_files=report_files,
-                processing_time=(datetime.now() - start_time).total_seconds()
+                reports=report_files,
+                processing_time=(end_time - start_time).total_seconds()
             )
             
             # 更新统计
@@ -140,13 +147,13 @@ class TestExecutorAgent(BaseApiAutomationAgent):
             # 发送错误响应
             await self._send_error_response(message, str(e))
 
-    async def _prepare_execution_environment(self, message: TestExecutionRequest):
+    async def _prepare_execution_environment(self, message: TestExecutionInput):
         """准备执行环境"""
         try:
-            # 检查测试文件是否存在
-            for script_file in message.script_files:
-                if not os.path.exists(script_file):
-                    raise FileNotFoundError(f"测试文件不存在: {script_file}")
+            # 检查测试脚本是否存在
+            for script in message.scripts:
+                if not os.path.exists(script.file_path):
+                    raise FileNotFoundError(f"测试文件不存在: {script.file_path}")
             
             # 创建报告目录
             execution_dir = self.reports_dir / message.execution_id
@@ -158,10 +165,10 @@ class TestExecutorAgent(BaseApiAutomationAgent):
             logger.error(f"准备执行环境失败: {str(e)}")
             raise
 
-    async def _execute_tests(self, message: TestExecutionRequest) -> Dict[str, Any]:
+    async def _execute_tests(self, message: TestExecutionInput) -> Dict[str, Any]:
         """执行测试"""
         try:
-            execution_dir = self.reports_dir / message.execution_id
+            execution_dir = self.reports_dir / message.session_id
             
             # 构建pytest命令
             cmd = ["python", "-m", "pytest"]
@@ -414,40 +421,61 @@ class TestExecutorAgent(BaseApiAutomationAgent):
 
         return report_files
 
-    def _parse_test_results(self, execution_result: Dict[str, Any]) -> List[TestResultInfo]:
-        """解析测试结果"""
-        test_results = []
-        
-        try:
-            for test_detail in execution_result.get("test_details", []):
-                result = TestResultInfo(
-                    result_id=str(uuid.uuid4()),
-                    test_name=test_detail.get("nodeid", "unknown"),
-                    status=ExecutionStatus.SUCCESS if test_detail.get("outcome") == "passed" else ExecutionStatus.FAILED,
-                    start_time=datetime.fromisoformat(execution_result.get("start_time", datetime.now().isoformat())),
-                    end_time=datetime.fromisoformat(execution_result.get("end_time", datetime.now().isoformat())),
-                    duration=test_detail.get("duration", 0),
-                    error_message=test_detail.get("call", {}).get("longrepr", ""),
-                    logs=[],
-                    attachments=[]
-                )
-                test_results.append(result)
-                
-        except Exception as e:
-            logger.error(f"解析测试结果失败: {str(e)}")
-        
-        return test_results
+    def _parse_script_results(self, execution_result: Dict[str, Any]) -> List[ScriptExecutionResult]:
+        """解析脚本执行结果 - 使用新的数据模型"""
+        script_results = []
 
-    async def _send_to_log_recorder(self, response: TestExecutionResponse):
+        try:
+            for script_detail in execution_result.get("script_details", []):
+                # 解析测试结果
+                test_results = []
+                for test in script_detail.get("tests", []):
+                    test_result = TestResult(
+                        test_id=str(uuid.uuid4()),
+                        test_name=test.get("nodeid", "unknown"),
+                        status=test.get("outcome", "unknown"),
+                        duration=test.get("duration", 0),
+                        error_message=test.get("call", {}).get("longrepr", "") if test.get("outcome") == "failed" else None,
+                        failure_reason=test.get("failure_reason"),
+                        stdout=test.get("stdout", ""),
+                        stderr=test.get("stderr", ""),
+                        assertions=test.get("assertions", [])
+                    )
+                    test_results.append(test_result)
+
+                # 创建脚本执行结果
+                script_result = ScriptExecutionResult(
+                    script_id=script_detail.get("script_id", str(uuid.uuid4())),
+                    script_name=script_detail.get("script_name", "unknown"),
+                    status=script_detail.get("status", "unknown"),
+                    start_time=datetime.fromisoformat(script_detail.get("start_time", datetime.now().isoformat())),
+                    end_time=datetime.fromisoformat(script_detail.get("end_time", datetime.now().isoformat())),
+                    duration=script_detail.get("duration", 0),
+                    test_results=test_results,
+                    total_tests=len(test_results),
+                    passed_tests=len([t for t in test_results if t.status == "passed"]),
+                    failed_tests=len([t for t in test_results if t.status == "failed"]),
+                    skipped_tests=len([t for t in test_results if t.status == "skipped"]),
+                    error_tests=len([t for t in test_results if t.status == "error"]),
+                    coverage_report=script_detail.get("coverage", {})
+                )
+                script_results.append(script_result)
+
+        except Exception as e:
+            logger.error(f"解析脚本执行结果失败: {str(e)}")
+
+        return script_results
+
+    async def _send_to_log_recorder(self, response: TestExecutionOutput):
         """发送到日志记录智能体"""
         try:
             # 这里应该发送到日志记录智能体
             logger.info(f"已发送到日志记录智能体: {response.execution_id}")
-            
+
         except Exception as e:
             logger.error(f"发送到日志记录智能体失败: {str(e)}")
 
-    async def _send_error_response(self, message: TestExecutionRequest, error: str):
+    async def _send_error_response(self, message: TestExecutionInput, error: str):
         """发送错误响应"""
         logger.error(f"测试执行错误: {error}")
 

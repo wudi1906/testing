@@ -31,6 +31,15 @@ async def lifespan(app: FastAPI):
         logger.error(f"初始化API自动化编排器失败: {str(e)}")
         # 不阻止应用启动，但记录错误
 
+    # 初始化接口管理编排器
+    try:
+        from app.api.v1.endpoints.interface_management import initialize_orchestrator as init_interface_orchestrator
+        await init_interface_orchestrator()
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"初始化接口管理编排器失败: {str(e)}")
+        # 不阻止应用启动，但记录错误
+
     yield
     await Tortoise.close_connections()
 
