@@ -90,6 +90,24 @@ class AssertionType(str, Enum):
     JSON_SCHEMA = "json_schema"
 
 
+class LogLevel(str, Enum):
+    """日志级别"""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
+
+
+class TaskStatus(str, Enum):
+    """任务状态"""
+    CREATED = "created"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
 # ============================================================================
 # 1. 文档解析智能体 - 输入输出模型
 # ============================================================================
@@ -198,6 +216,7 @@ class AnalysisInput(BaseModel):
     """接口分析输入"""
     session_id: str = Field(..., description="会话ID")
     document_id: str = Field(..., description="文档ID")
+    interface_id: Optional[str] = Field(None, description="接口ID")  # 新增：接口ID
     api_info: ParsedApiInfo = Field(..., description="API基本信息")
     endpoints: List[ParsedEndpoint] = Field(..., description="端点列表")
     analysis_options: Dict[str, Any] = Field(default_factory=dict, description="分析选项")
@@ -230,6 +249,7 @@ class AnalysisOutput(BaseModel):
     """接口分析输出"""
     session_id: str = Field(..., description="会话ID")
     document_id: str = Field(..., description="文档ID")
+    interface_id: Optional[str] = Field(None, description="接口ID")  # 新增：接口ID
     dependencies: List[EndpointDependency] = Field(default_factory=list, description="依赖关系")
     execution_groups: List[ExecutionGroup] = Field(default_factory=list, description="执行组")
     test_strategy: List[str] = Field(default_factory=list, description="测试策略建议")
@@ -245,6 +265,7 @@ class TestCaseGenerationInput(BaseModel):
     """测试用例生成输入"""
     session_id: str = Field(..., description="会话ID")
     document_id: str = Field(..., description="文档ID")
+    interface_id: Optional[str] = Field(None, description="接口ID")  # 新增：接口ID
     api_info: ParsedApiInfo = Field(..., description="API基本信息")
     endpoints: List[ParsedEndpoint] = Field(..., description="端点列表")
     dependencies: List[EndpointDependency] = Field(default_factory=list, description="依赖关系")
@@ -286,6 +307,7 @@ class TestCaseGenerationOutput(BaseModel):
     """测试用例生成输出"""
     session_id: str = Field(..., description="会话ID")
     document_id: str = Field(..., description="文档ID")
+    interface_id: Optional[str] = Field(None, description="接口ID")  # 新增：接口ID
     test_cases: List[GeneratedTestCase] = Field(default_factory=list, description="测试用例列表")
     coverage_report: Dict[str, Any] = Field(default_factory=dict, description="覆盖度报告")
     generation_summary: Dict[str, Any] = Field(default_factory=dict, description="生成摘要")
@@ -304,6 +326,7 @@ class ScriptGenerationInput(BaseModel):
     api_info: ParsedApiInfo = Field(..., description="API基本信息")
     endpoints: List[ParsedEndpoint] = Field(..., description="端点列表")
     test_cases: List[GeneratedTestCase] = Field(..., description="测试用例列表")
+    dependencies: List[EndpointDependency] = Field(default_factory=list, description="依赖关系")  # 新增：依赖关系
     execution_groups: List[ExecutionGroup] = Field(default_factory=list, description="执行组")
     generation_options: Dict[str, Any] = Field(default_factory=dict, description="生成选项")
 
@@ -324,6 +347,7 @@ class ScriptGenerationOutput(BaseModel):
     """脚本生成输出"""
     session_id: str = Field(..., description="会话ID")
     document_id: str = Field(..., description="文档ID")
+    interface_id: Optional[str] = Field(None, description="接口ID")  # 新增：接口ID
     scripts: List[GeneratedScript] = Field(default_factory=list, description="脚本列表")
     config_files: Dict[str, str] = Field(default_factory=dict, description="配置文件")
     requirements_txt: str = Field("", description="依赖文件内容")
@@ -547,6 +571,7 @@ class AgentPrompts:
    - 为每个测试用例生成合适的测试数据
    - 考虑参数约束和业务规则
    - 包含有效数据、无效数据和边界数据
+   - **重要：测试值必须是有效的JSON值，不能包含JavaScript表达式或函数调用**
 
 3. **断言设计**：
    - 设计准确的状态码断言
@@ -557,30 +582,92 @@ class AgentPrompts:
    - 处理端点间的数据依赖关系
    - 设计前置步骤和清理步骤
 
-请生成详细的测试用例列表，确保测试覆盖度和质量。"""
+**重要：请严格按照以下JSON格式返回结果，不要包含任何额外的文本、说明或markdown标记：**
+
+**JSON格式要求：**
+- 所有字符串值必须用双引号包围
+- 测试值必须是有效的JSON值，不能包含JavaScript表达式（如 "a".repeat(320)）
+- 对于长字符串，请直接生成完整的字符串值
+- 数字值不要用引号包围
+- 确保JSON语法完全正确，没有多余的逗号
+
+```json
+{{
+  "test_cases": [
+    {{
+      "test_name": "测试用例名称",
+      "endpoint_id": "端点ID",
+      "test_type": "positive|negative|boundary|security|performance",
+      "description": "测试用例描述",
+      "test_data": [
+        {{
+          "parameter_name": "参数名",
+          "test_value": "测试值（必须是有效的JSON值，不能是JavaScript表达式）",
+          "value_description": "值描述"
+        }}
+      ],
+      "assertions": [
+        {{
+          "assertion_type": "status_code|response_body|response_header|response_time",
+          "expected_value": "期望值",
+          "comparison_operator": "equals|contains|greater_than|less_than",
+          "description": "断言描述"
+        }}
+      ],
+      "setup_steps": ["前置步骤1", "前置步骤2"],
+      "cleanup_steps": ["清理步骤1", "清理步骤2"],
+      "priority": 1,
+      "tags": ["标签1", "标签2"]
+    }}
+  ],
+  "generation_method": "intelligent",
+  "confidence_score": 0.9
+}}
+```
+
+请确保返回有效的JSON格式，去掉所有markdown标记和额外说明。
+
+**特别注意：**
+- 对于超长字符串测试值（如320字符的邮箱），请直接生成完整的字符串，不要使用JavaScript的repeat()函数
+- 示例：使用 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa@example.com" 而不是 "a".repeat(320) + "@example.com"
+- 所有测试值都必须是有效的JSON字面量"""
 
     # 4. 脚本生成智能体提示词
-    SCRIPT_GENERATOR_SYSTEM_PROMPT = """你是一个测试脚本生成专家，专门负责将测试用例转换为可执行的自动化测试脚本：
+    SCRIPT_GENERATOR_SYSTEM_PROMPT = """你是一个测试脚本生成专家，专门负责将测试用例转换为单一的、完整的、可执行的自动化测试脚本：
 
-1. **代码生成**：生成高质量的pytest测试脚本
-2. **框架集成**：集成pytest、requests、allure等测试框架
-3. **最佳实践**：遵循测试代码的最佳实践和规范
-4. **可维护性**：生成结构清晰、易于维护的测试代码
+1. **单一脚本生成**：生成一个包含所有测试用例的完整pytest测试脚本
+2. **自包含设计**：所有必要的fixture、工具函数、配置都在同一个脚本中定义
+3. **框架集成**：集成pytest、requests、allure等测试框架
+4. **最佳实践**：遵循测试代码的最佳实践和规范
+5. **Python语法正确**：确保所有变量名、函数名符合Python命名规范
 
-## 技术要求：
-- 使用pytest作为测试框架
-- 使用requests进行HTTP请求
-- 集成allure进行测试报告
+## 核心要求：
+- **只生成一个测试脚本文件**，不需要额外的配置文件或工具类文件
+- 所有公共的fixture、工具函数都在脚本内部定义
+- 使用pytest作为测试框架，使用requests进行HTTP请求
+- 集成allure进行测试报告（可选）
 - 支持参数化测试和数据驱动
-- 包含完整的错误处理和日志记录
+
+## 脚本结构：
+1. 导入必要的库
+2. 定义配置常量和全局变量
+3. 定义公共fixture和工具函数
+4. 定义测试类和测试方法
+5. 包含完整的错误处理和断言
 
 ## 代码质量：
 - 代码结构清晰，注释完整
 - 遵循PEP8编码规范
 - 包含适当的异常处理
-- 支持配置管理和环境切换"""
+- 脚本可以独立运行，无需额外依赖文件
 
-    SCRIPT_GENERATOR_TASK_PROMPT = """请基于以下测试用例生成可执行的pytest测试脚本：
+## 关键语法要求：
+- **变量名规范**：只能包含字母、数字、下划线，不能包含连字符(-)
+- **变量定义**：所有变量必须先定义后使用，不能直接给未定义的对象属性赋值
+- **字典键名**：包含特殊字符的键名必须用引号包围
+- **请求参数**：必须根据测试数据正确构造请求参数，不能使用硬编码的占位符"""
+
+    SCRIPT_GENERATOR_TASK_PROMPT = """请基于以下测试用例生成一个完整的、自包含的pytest测试脚本：
 
 ## API基本信息
 {api_info}
@@ -591,31 +678,172 @@ class AgentPrompts:
 ## 测试用例
 {test_cases}
 
+## 依赖关系
+{dependencies}
+
 ## 执行组信息
 {execution_groups}
 
-## 生成要求
-1. **脚本结构**：
-   - 生成完整的pytest测试脚本
-   - 包含测试类和测试方法
-   - 支持测试用例的组织和分类
+## 生成选项
+{generation_options}
 
-2. **功能实现**：
-   - 实现HTTP请求发送
-   - 实现响应验证和断言
-   - 实现数据依赖处理
-   - 实现前置和清理步骤
+## 核心要求
+**重要：只生成一个完整的测试脚本文件，不需要任何额外的配置文件或工具类文件**
 
-3. **框架集成**：
-   - 集成pytest框架特性
-   - 集成allure测试报告
-   - 支持参数化测试
-   - 支持并发执行
+## 脚本生成要求
+1. **单一脚本设计**：
+   - 生成一个完整的pytest测试脚本（如：test_api_automation.py）
+   - 所有必要的配置、工具函数、fixture都在脚本内部定义
+   - 脚本可以独立运行，无需额外的配置文件
 
-4. **辅助功能**：
-   - 生成配置文件
-   - 生成依赖文件(requirements.txt)
-   - 生成README文档
-   - 生成测试工具类
+2. **脚本内容结构**：
+   ```python
+   # 1. 导入必要的库
+   import pytest
+   import requests
+   import json
+   # 其他必要的导入...
 
-请生成完整的测试脚本和相关配置文件，确保代码可以直接运行。"""
+   # 2. 配置常量（API基础URL、超时时间等）
+   API_BASE_URL = "..."
+   TIMEOUT = 30
+
+   # 3. 公共fixture定义
+   @pytest.fixture(scope="session")
+   def api_client():
+       # API客户端初始化
+       pass
+
+   @pytest.fixture
+   def test_data():
+       # 测试数据准备
+       pass
+
+   # 4. 工具函数定义
+   def validate_response(response, expected_status=200):
+       # 响应验证工具函数
+       pass
+
+   # 5. 测试类和测试方法
+   class TestAPIAutomation:
+       def test_xxx(self, api_client, test_data):
+           # 具体的测试方法
+           pass
+   ```
+
+3. **功能实现要求**：
+   - 实现所有测试用例对应的测试方法
+   - 实现HTTP请求发送和响应处理
+   - 实现完整的断言验证
+   - 处理测试数据和参数化
+   - 处理依赖关系和执行顺序
+   - 包含错误处理和日志记录
+
+4. **代码质量要求**：
+   - 代码结构清晰，注释完整
+   - 遵循PEP8编码规范
+   - 测试方法命名规范（test_开头）
+   - 包含适当的pytest标记（如@pytest.mark.parametrize）
+
+5. **关键语法规范**：
+   - **变量命名**：所有变量名只能包含字母、数字、下划线，绝对不能包含连字符(-)
+   - **变量定义**：必须先定义变量再使用，不能直接给未定义的对象属性赋值
+   - **测试数据使用**：
+     ```python
+     # 正确的方式：
+     email = "test@example.com"
+     password = "password123"
+     headers = {"access_token": "token123", "fecshop_currency": "USD"}
+
+     # 错误的方式：
+     body.email = "test@example.com"  # body未定义
+     access-token = "token123"  # 变量名包含连字符
+     ```
+   - **请求参数构造**：根据测试数据正确构造请求参数，不能使用占位符
+     ```python
+     # 正确的方式：
+     json_data = {"email": email, "password": password}
+     headers = {"access-token": access_token}
+     response = make_request(client, "POST", "/login", json=json_data, headers=headers)
+
+     # 错误的方式：
+     json={"key": "value"}  # 硬编码占位符
+     ```
+   - **断言逻辑**：每个测试用例只调用一次状态码验证，避免重复断言
+
+## 输出格式
+请严格按照以下JSON格式返回结果：
+
+```json
+{
+    "scripts": [
+        {
+            "script_name": "test_api_接口英文名称.py",
+            "file_path": "test_api_接口英文名称.py",
+            "script_content": "完整的Python测试脚本代码",
+            "test_case_ids": ["所有测试用例的ID列表"],
+            "framework": "pytest",
+            "dependencies": ["pytest", "requests", "allure-pytest"],
+            "execution_order": 1
+        }
+    ],
+    "confidence_score": 0.9,
+    "generation_method": "intelligent_single_script"
+}
+```
+
+**注意：脚本中的变量名称或者函数名称不能包含 `-`，请用`_`替代，只生成一个脚本文件，确保脚本完整、自包含且可以直接运行。**"""
+
+
+# ============================================================================
+# 日志记录相关消息类型
+# ============================================================================
+
+class LogRecordRequest(BaseModel):
+    """日志记录请求"""
+    session_id: str = Field(..., description="会话ID")
+    source: str = Field(..., description="日志来源（智能体名称）")
+    level: LogLevel = Field(LogLevel.INFO, description="日志级别")
+    message: str = Field(..., description="日志消息")
+    timestamp: datetime = Field(default_factory=datetime.now, description="时间戳")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="元数据")
+
+    # 可选的扩展字段
+    request_id: Optional[str] = Field(None, description="请求ID")
+    user_id: Optional[str] = Field(None, description="用户ID")
+    operation: Optional[str] = Field(None, description="操作类型")
+    execution_time: Optional[float] = Field(None, description="执行时间")
+    memory_usage: Optional[float] = Field(None, description="内存使用")
+    cpu_usage: Optional[float] = Field(None, description="CPU使用")
+    error_code: Optional[str] = Field(None, description="错误代码")
+    error_type: Optional[str] = Field(None, description="错误类型")
+    stack_trace: Optional[str] = Field(None, description="堆栈跟踪")
+    tags: List[str] = Field(default_factory=list, description="标签")
+    category: Optional[str] = Field(None, description="分类")
+
+
+class LogRecordResponse(BaseModel):
+    """日志记录响应"""
+    session_id: str = Field(..., description="会话ID")
+    log_id: str = Field(..., description="日志ID")
+    status: str = Field(..., description="记录状态")
+    timestamp: datetime = Field(..., description="时间戳")
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    """任务状态更新请求"""
+    session_id: str = Field(..., description="会话ID")
+    interface_id: str = Field(..., description="接口ID")
+    status: TaskStatus = Field(..., description="任务状态")
+    progress: float = Field(0.0, description="进度百分比")
+    current_step: str = Field("", description="当前步骤")
+    error_message: Optional[str] = Field(None, description="错误信息")
+    result_data: Dict[str, Any] = Field(default_factory=dict, description="结果数据")
+
+
+class TaskStatusUpdateResponse(BaseModel):
+    """任务状态更新响应"""
+    session_id: str = Field(..., description="会话ID")
+    interface_id: str = Field(..., description="接口ID")
+    status: TaskStatus = Field(..., description="任务状态")
+    updated_at: datetime = Field(default_factory=datetime.now, description="更新时间")

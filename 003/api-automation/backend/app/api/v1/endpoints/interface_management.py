@@ -11,6 +11,7 @@ from app.agents.api_automation.schemas import DocumentFormat, DocumentParseInput
 from app.models.api_automation import ApiDocument, ApiInterface, ApiParameter as DbApiParameter, ApiResponse as DbApiResponse
 from app.core.enums import HttpMethod, SessionStatus
 from app.services.api_automation import ApiAutomationOrchestrator
+from app.services.api_automation.interface_script_service import InterfaceScriptService
 from app.core.agents.collector import StreamResponseCollector
 from app.core.types import AgentPlatform
 import os
@@ -605,11 +606,32 @@ def _get_status_message(status: SessionStatus) -> str:
     return status_messages.get(status, "未知状态")
 
 
-@router.post("/interfaces/{interface_id}/generate-script", response_model=ScriptGenerationResponse)
+@router.post("/interfaces/{interface_id}/generate-script")
 async def generate_interface_script(interface_id: str):
     """为指定接口生成测试脚本"""
     try:
-        # 1. 获取接口信息
+        # 1. 检查是否已有正在进行的任务
+        from app.models.api_automation import ScriptGenerationTask
+        from app.core.enums import SessionStatus
+
+        existing_task = await ScriptGenerationTask.filter(
+            interface_id=interface_id,
+            status__in=[SessionStatus.CREATED, SessionStatus.PROCESSING]
+        ).first()
+
+        if existing_task:
+            from app.core.response import error_response
+            return error_response(
+                msg="该接口脚本正在生成中，请稍后再试",
+                code=409,
+                data={
+                    "success": False,
+                    "session_id": existing_task.session_id,
+                    "task_id": existing_task.task_id
+                }
+            )
+
+        # 2. 获取接口信息
         interface = await ApiInterface.filter(
             interface_id=interface_id,
             is_active=True
@@ -618,29 +640,42 @@ async def generate_interface_script(interface_id: str):
         if not interface:
             raise HTTPException(status_code=404, detail="接口不存在")
 
-        # 2. 获取文档信息
+        # 3. 获取文档信息
         document = interface.document
 
-        # 3. 生成会话ID
+        # 4. 生成会话ID和任务ID
         session_id = str(uuid.uuid4())
+        task_id = str(uuid.uuid4())
 
-        # 4. 获取编排器实例
-        orch = get_orchestrator()
-
-        # 5. 直接传递数据库对象给编排器，避免重复封装
-        result = await orch.generate_interface_script(
+        # 5. 创建任务记录
+        task = await ScriptGenerationTask.create(
+            task_id=task_id,
             session_id=session_id,
-            interface_obj=interface,  # 直接传递接口对象
-            document_obj=document     # 直接传递文档对象
+            interface_id=interface_id,
+            status=SessionStatus.CREATED,
+            current_step="初始化任务"
+        )
+
+        # 6. 启动后台任务
+        from app.core.bgtask import BgTasks
+        await BgTasks.add_task(
+            _execute_script_generation_task,
+            session_id,
+            interface,
+            document,
+            task_id
         )
 
         logger.info(f"已启动接口脚本生成任务: interface_id={interface_id}, session_id={session_id}")
 
-        return ScriptGenerationResponse(
-            success=result["success"],
-            message=result["message"],
-            session_id=result["session_id"],
-            task_id=result.get("interface_id", interface_id)
+        from app.core.response import success_response
+        return success_response(
+            data={
+                "success": True,
+                "session_id": session_id,
+                "task_id": task_id
+            },
+            msg="脚本生成任务已启动"
         )
 
     except HTTPException:
@@ -650,24 +685,164 @@ async def generate_interface_script(interface_id: str):
         raise HTTPException(status_code=500, detail=f"生成脚本失败: {str(e)}")
 
 
+async def _execute_script_generation_task(session_id: str, interface, document, task_id: str):
+    """执行脚本生成任务的后台函数"""
+    from app.models.api_automation import ScriptGenerationTask
+    from app.core.enums import SessionStatus
+    from datetime import datetime
+
+    try:
+        # 更新任务状态为处理中
+        await ScriptGenerationTask.filter(task_id=task_id).update(
+            status=SessionStatus.PROCESSING,
+            start_time=datetime.now(),
+            current_step="启动编排器"
+        )
+
+        # 获取编排器实例
+        orch = get_orchestrator()
+
+        # 更新任务步骤
+        await ScriptGenerationTask.filter(task_id=task_id).update(
+            current_step="执行脚本生成"
+        )
+
+        # 执行脚本生成
+        result = await orch.generate_interface_script(
+            session_id=session_id,
+            interface_obj=interface,
+            document_obj=document
+        )
+
+        # 更新任务完成状态
+        end_time = datetime.now()
+        task_record = await ScriptGenerationTask.get(task_id=task_id)
+
+        # 修复时间计算问题 - 确保时间类型一致
+        if task_record.start_time:
+            # 如果start_time是aware datetime，转换为naive
+            start_time = task_record.start_time
+            if hasattr(start_time, 'tzinfo') and start_time.tzinfo is not None:
+                start_time = start_time.replace(tzinfo=None)
+            processing_time = (end_time - start_time).total_seconds()
+        else:
+            processing_time = 0
+
+        await ScriptGenerationTask.filter(task_id=task_id).update(
+            status=SessionStatus.COMPLETED,
+            end_time=end_time,
+            processing_time=processing_time,
+            current_step="任务完成",
+            result_data=result
+        )
+
+        logger.info(f"脚本生成任务完成: task_id={task_id}, session_id={session_id}")
+
+    except Exception as e:
+        # 更新任务失败状态
+        await ScriptGenerationTask.filter(task_id=task_id).update(
+            status=SessionStatus.FAILED,
+            end_time=datetime.now(),
+            current_step="任务失败",
+            error_message=str(e)
+        )
+
+        logger.error(f"脚本生成任务失败: task_id={task_id}, error={str(e)}")
+
+
 @router.get("/script-generation/{session_id}/status")
 async def get_script_generation_status(session_id: str):
     """获取脚本生成状态"""
     try:
-        # 获取编排器实例
-        orch = get_orchestrator()
+        from app.models.api_automation import ScriptGenerationTask
 
-        # 获取会话状态
-        status_info = await orch.get_session_status(session_id)
+        # 从数据库获取任务状态
+        task = await ScriptGenerationTask.filter(session_id=session_id).first()
 
-        return {
-            "success": status_info.get("success", False),
-            "session_id": session_id,
-            "status": status_info.get("status", "unknown"),
-            "message": status_info.get("message", ""),
-            "data": status_info.get("data", {})
-        }
+        if not task:
+            from app.core.response import error_response
+            return error_response(
+                msg="任务不存在",
+                code=404,
+                data={
+                    "success": False,
+                    "session_id": session_id,
+                    "status": "not_found"
+                }
+            )
+
+        from app.core.response import success_response
+        return success_response(
+            data={
+                "success": True,
+                "session_id": session_id,
+                "status": task.status.value,
+                "progress": task.progress,
+                "current_step": task.current_step,
+                "error_message": task.error_message,
+                "task_id": task.task_id,
+                "interface_id": task.interface_id,
+                "start_time": task.start_time.isoformat() if task.start_time else None,
+                "end_time": task.end_time.isoformat() if task.end_time else None,
+                "processing_time": task.processing_time,
+                "result_data": task.result_data
+            },
+            msg=f"当前步骤: {task.current_step}"
+        )
 
     except Exception as e:
         logger.error(f"获取脚本生成状态失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取状态失败: {str(e)}")
+
+
+@router.get("/session-logs/{session_id}")
+async def get_session_logs(session_id: str, limit: int = 100):
+    """获取会话日志"""
+    try:
+        from app.services.log_service import LogService
+
+        logs = await LogService.get_session_logs(session_id, limit=limit)
+
+        log_data = []
+        for log in logs:
+            log_data.append({
+                "log_id": log.log_id,
+                "timestamp": log.timestamp.isoformat(),
+                "level": log.log_level,
+                "agent_type": log.agent_type,
+                "agent_name": log.agent_name,
+                "message": log.message,  # 修改字段名
+                "data": log.operation_data,  # 修改字段名
+                "operation": log.operation,
+                "execution_time": log.execution_time,
+                "error_type": log.error_type,
+                "tags": log.tags
+            })
+
+        from app.core.response import success_response
+        return success_response(
+            data={
+                "success": True,
+                "session_id": session_id,
+                "logs": log_data,
+                "total": len(log_data)
+            },
+            msg="获取日志成功"
+        )
+
+    except Exception as e:
+        logger.error(f"获取会话日志失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取日志失败: {str(e)}")
+
+
+# ==================== 注意：接口脚本管理API已迁移到 script_management.py ====================
+# 相关API路径：
+# - GET /api/v1/scripts/interfaces/{interface_id}/scripts - 获取接口脚本
+# - GET /api/v1/scripts/{script_id} - 获取脚本详情
+# - PUT /api/v1/scripts/{script_id}/status - 更新脚本状态
+# - DELETE /api/v1/scripts/{script_id} - 删除脚本
+# - GET /api/v1/scripts/interfaces/{interface_id}/scripts/statistics - 获取接口脚本统计
+# - GET /api/v1/scripts/interfaces/{interface_id}/scripts/generation-history - 获取脚本生成历史
+# - PUT /api/v1/scripts/batch-status - 批量更新脚本状态
+# - GET /api/v1/scripts/documents/{document_id}/scripts/overview - 获取文档脚本概览
+

@@ -99,7 +99,7 @@
           type="info"
           size="large"
           block
-          @click="$router.push('/api-automation/test-management')"
+          @click="$router.push('/api-automation/script-management')"
         >
           <template #icon>
             <n-icon><Icon icon="mdi:script-text" /></n-icon>
@@ -204,12 +204,12 @@ const workflows = [
     route: '/api-automation/document-workflow'
   },
   {
-    id: 'test-management',
+    id: 'script-management',
     title: '测试脚本管理',
     description: '查看、编辑和管理生成的测试脚本',
     icon: 'mdi:script-text',
     color: '#f0a020',
-    route: '/api-automation/test-management'
+    route: '/api-automation/script-management'
   },
   {
     id: 'test-execution',

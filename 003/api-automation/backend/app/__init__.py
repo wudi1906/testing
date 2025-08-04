@@ -40,6 +40,21 @@ async def lifespan(app: FastAPI):
         logger.error(f"初始化接口管理编排器失败: {str(e)}")
         # 不阻止应用启动，但记录错误
 
+    # 初始化 Marker PDF 服务
+    try:
+        from app.services.pdf import initialize_marker_service
+        success = await initialize_marker_service()
+        if success:
+            from loguru import logger
+            logger.info("✅ Marker PDF 服务初始化成功")
+        else:
+            from loguru import logger
+            logger.warning("⚠️ Marker PDF 服务初始化失败，将使用备用 PDF 解析方法")
+    except Exception as e:
+        from loguru import logger
+        logger.error(f"初始化 Marker PDF 服务失败: {str(e)}")
+        # 不阻止应用启动，但记录错误
+
     yield
     await Tortoise.close_connections()
 

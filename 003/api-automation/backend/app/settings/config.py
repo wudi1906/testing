@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     TORTOISE_ORM: dict = {
         "connections": {
             # SQLite configuration
-            "sqlite": {
+            "default": {
                 "engine": "tortoise.backends.sqlite",
                 "credentials": {"file_path": f"{BASE_DIR}/db.sqlite3"},  # Path to SQLite database file
             },
@@ -82,7 +82,7 @@ class Settings(BaseSettings):
         "apps": {
             "models": {
                 "models": ["app.models", "app.models.api_automation", "aerich.models"],
-                "default_connection": "sqlite",
+                "default_connection": "default",
             },
         },
         "use_tz": False,  # Whether to use timezone-aware datetimes

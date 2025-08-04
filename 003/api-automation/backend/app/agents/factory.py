@@ -80,8 +80,7 @@ class AgentFactory:
             from app.agents.api_automation.script_generator_agent import ScriptGeneratorAgent
             from app.agents.api_automation.script_executor_agent import TestExecutorAgent
 
-            # 暂时注释掉有导入问题的智能体
-            # from app.agents.api_automation.log_recorder_agent import LogRecorderAgent
+            from app.agents.api_automation.log_recorder_agent import LogRecorderAgent
 
             # 注册智能体类
             self._agent_classes.update({
@@ -91,8 +90,7 @@ class AgentFactory:
                 AgentTypes.API_TEST_CASE_GENERATOR.value: TestCaseGeneratorAgent,
                 AgentTypes.TEST_SCRIPT_GENERATOR.value: ScriptGeneratorAgent,
                 AgentTypes.TEST_EXECUTOR.value: TestExecutorAgent,  # ✅ 已修复
-                # 暂时注释掉有问题的智能体
-                # AgentTypes.LOG_RECORDER.value: LogRecorderAgent,
+                AgentTypes.LOG_RECORDER.value: LogRecorderAgent,
             })
 
             logger.info(f"已注册 {len(self._agent_classes)} 个API自动化智能体类")

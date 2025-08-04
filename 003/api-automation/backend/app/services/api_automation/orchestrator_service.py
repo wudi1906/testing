@@ -6,7 +6,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from autogen_core import SingleThreadedAgentRuntime, TopicId
-from autogen_ext.runtimes.grpc import GrpcWorkerAgentRuntime
+# from autogen_ext.runtimes.grpc import GrpcWorkerAgentRuntime  # 临时注释掉，避免grpc版本冲突
 from loguru import logger
 
 from app.core.agents.collector import StreamResponseCollector
@@ -584,24 +584,14 @@ class ApiAutomationOrchestrator:
                 ApiParameter, ApiResponse, ParameterLocation, DataType
             )
 
-            # 直接从文档对象构建API信息
+            # 直接从文档对象构建API信息 - 只使用ParsedApiInfo中实际存在的字段
             parsed_api_info = ParsedApiInfo(
                 title=document_obj.api_info.get("title", "API") if document_obj.api_info else "API",
                 version=document_obj.api_info.get("version", "1.0") if document_obj.api_info else "1.0",
                 description=document_obj.api_info.get("description", "") if document_obj.api_info else "",
                 base_url=document_obj.api_info.get("base_url", "") if document_obj.api_info else "",
                 contact=document_obj.api_info.get("contact", {}) if document_obj.api_info else {},
-                license=document_obj.api_info.get("license", {}) if document_obj.api_info else {},
-                servers=document_obj.api_info.get("servers", []) if document_obj.api_info else [],
-                external_docs=document_obj.api_info.get("externalDocs", {}) if document_obj.api_info else {},
-                global_headers=document_obj.api_info.get("global_headers", {}) if document_obj.api_info else {},
-                security_schemes=document_obj.security_schemes or {},
-                schemas=document_obj.schemas or {},
-                extended_info=document_obj.api_info.get("extended_info", {}) if document_obj.api_info else {},
-                raw_parsed_data=document_obj.api_info.get("raw_parsed_data", {}) if document_obj.api_info else {},
-                quality_assessment=document_obj.api_info.get("quality_assessment", {}) if document_obj.api_info else {},
-                testing_recommendations=document_obj.api_info.get("testing_recommendations", []) if document_obj.api_info else [],
-                error_codes=document_obj.api_info.get("error_codes", {}) if document_obj.api_info else {}
+                license=document_obj.api_info.get("license", {}) if document_obj.api_info else {}
             )
 
             # 直接从接口对象构建参数信息
@@ -699,6 +689,7 @@ class ApiAutomationOrchestrator:
             analysis_input = AnalysisInput(
                 session_id=session_id,
                 document_id=document_id,
+                interface_id=interface_id,  # 传递interface_id
                 api_info=parsed_api_info,
                 endpoints=[parsed_endpoint],
                 analysis_options=analysis_options

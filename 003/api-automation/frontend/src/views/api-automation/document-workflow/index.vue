@@ -771,7 +771,7 @@ const downloadTestScripts = () => {
 }
 
 const goToTestManagement = () => {
-  router.push('/api-automation/test-management')
+  router.push('/api-automation/script-management')
 }
 
 const renderSchemaLabel = ({ option }) => {

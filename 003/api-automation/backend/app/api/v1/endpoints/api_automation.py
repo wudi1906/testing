@@ -105,6 +105,69 @@ async def health_check():
     return {"status": "ok", "message": "API自动化服务正常运行"}
 
 
+@router.get("/endpoints")
+async def get_api_endpoints(
+    page: int = 1,
+    page_size: int = 20,
+    search: str = None,
+    method: str = None,
+    doc_id: str = None
+):
+    """获取API接口列表（兼容性接口）"""
+    try:
+        from app.models.api_automation import ApiInterface
+        from tortoise.expressions import Q
+
+        # 构建查询条件
+        query = Q(is_active=True)
+
+        if search:
+            query &= (
+                Q(name__icontains=search) |
+                Q(path__icontains=search) |
+                Q(description__icontains=search)
+            )
+
+        if method:
+            query &= Q(method=method.upper())
+
+        if doc_id:
+            query &= Q(doc_id=doc_id)
+
+        # 获取总数
+        total = await ApiInterface.filter(query).count()
+
+        # 获取分页数据，预加载关联的document对象
+        interfaces = await ApiInterface.filter(query).select_related('document').offset((page - 1) * page_size).limit(page_size).order_by('-created_at')
+
+        # 转换为前端期望的格式
+        data = []
+        for interface in interfaces:
+            data.append({
+                "endpointId": interface.interface_id,
+                "method": interface.method.value if hasattr(interface.method, 'value') else interface.method,
+                "path": interface.path,
+                "name": interface.name,  # 修复：使用正确的字段名
+                "description": interface.description,
+                "docId": interface.document.doc_id if interface.document else None,  # 修复：通过关联关系访问
+                "createdAt": interface.created_at.isoformat() if interface.created_at else None
+            })
+
+        from app.core.response import success_response
+        return success_response(
+            data=data,
+            msg="获取接口列表成功"
+        )
+
+    except Exception as e:
+        logger.error(f"获取API接口列表失败: {str(e)}")
+        from app.core.response import error_response
+        return error_response(
+            msg=f"获取接口列表失败: {str(e)}",
+            code=500
+        )
+
+
 @router.get("/supported-types")
 async def get_supported_file_types():
     """获取支持的API文档文件类型"""
@@ -220,6 +283,19 @@ def get_orchestrator() -> ApiAutomationOrchestrator:
     global orchestrator
     if orchestrator is None:
         raise RuntimeError("编排器未初始化，请检查应用启动流程")
+    return orchestrator
+
+
+async def get_orchestrator_async() -> Optional[ApiAutomationOrchestrator]:
+    """异步获取编排器实例，如果未初始化则尝试初始化"""
+    global orchestrator
+    if orchestrator is None:
+        try:
+            logger.info("编排器未初始化，尝试异步初始化...")
+            await initialize_orchestrator()
+        except Exception as e:
+            logger.error(f"异步初始化编排器失败: {str(e)}")
+            return None
     return orchestrator
 
 
@@ -365,13 +441,9 @@ async def upload_api_document(
         if auto_parse:
             logger.info(f"启动自动解析任务: {session_id}")
 
-            # 获取编排器
-            orch = get_orchestrator()
-
-            # 启动后台解析任务
+            # 启动后台解析任务（不等待编排器初始化）
             background_tasks.add_task(
-                process_document_background,
-                orch,
+                process_document_background_safe,
                 session_id,
                 str(file_path),
                 file.filename,
@@ -427,7 +499,7 @@ async def process_document_background(
         if session_id in active_sessions:
             active_sessions[session_id]["status"] = "processing"
             active_sessions[session_id]["started_at"] = datetime.now().isoformat()
-        
+
         # 处理文档
         result = await orch.process_api_document(
             session_id=session_id,
@@ -436,18 +508,70 @@ async def process_document_background(
             doc_format=doc_format,
             config=config
         )
-        
+
         # 更新会话状态
         if session_id in active_sessions:
             active_sessions[session_id]["status"] = "completed"
             active_sessions[session_id]["completed_at"] = datetime.now().isoformat()
             active_sessions[session_id]["result"] = result
-        
+
         logger.info(f"文档处理完成: {session_id}")
-        
+
     except Exception as e:
         logger.error(f"后台处理文档失败: {str(e)}")
-        
+
+        # 更新会话状态
+        if session_id in active_sessions:
+            active_sessions[session_id]["status"] = "failed"
+            active_sessions[session_id]["error"] = str(e)
+            active_sessions[session_id]["failed_at"] = datetime.now().isoformat()
+
+
+async def process_document_background_safe(
+    session_id: str,
+    file_path: str,
+    file_name: str,
+    doc_format: str,
+    config: Dict[str, Any]
+) -> None:
+    """安全的后台处理文档 - 不阻塞上传响应"""
+    try:
+        logger.info(f"开始安全后台处理文档: {session_id}")
+
+        # 更新会话状态
+        if session_id in active_sessions:
+            active_sessions[session_id]["status"] = "initializing"
+            active_sessions[session_id]["started_at"] = datetime.now().isoformat()
+
+        # 异步获取编排器，如果失败不影响上传
+        orch = await get_orchestrator_async()
+        if orch is None:
+            raise RuntimeError("编排器初始化失败")
+
+        # 更新状态为处理中
+        if session_id in active_sessions:
+            active_sessions[session_id]["status"] = "processing"
+
+        # 处理文档
+        result = await orch.process_api_document(
+            session_id=session_id,
+            file_path=file_path,
+            file_name=file_name,
+            doc_format=doc_format,
+            config=config
+        )
+
+        # 更新会话状态
+        if session_id in active_sessions:
+            active_sessions[session_id]["status"] = "completed"
+            active_sessions[session_id]["completed_at"] = datetime.now().isoformat()
+            active_sessions[session_id]["result"] = result
+
+        logger.info(f"安全后台文档处理完成: {session_id}")
+
+    except Exception as e:
+        logger.error(f"安全后台处理文档失败: {str(e)}")
+
         # 更新会话状态
         if session_id in active_sessions:
             active_sessions[session_id]["status"] = "failed"
@@ -561,13 +685,9 @@ async def trigger_document_parse(
 
         logger.info(f"开始手动解析文档: {file_name}")
 
-        # 获取编排器
-        orch = get_orchestrator()
-
-        # 启动后台解析任务
+        # 启动安全后台解析任务
         background_tasks.add_task(
-            process_document_background,
-            orch,
+            process_document_background_safe,
             session_id,
             file_path,
             file_name,

@@ -15,10 +15,9 @@ from pydantic import BaseModel, Field
 
 from app.agents.api_automation.base_api_agent import BaseApiAutomationAgent
 from app.core.types import AgentTypes, AGENT_NAMES, TopicTypes
-from app.core.messages.api_automation import (
-    LogRecordRequest, LogRecordResponse
+from .schemas import (
+    LogRecordRequest, LogRecordResponse, LogLevel
 )
-from app.core.enums import LogLevel
 from app.services.log_service import LogService
 
 
@@ -90,7 +89,7 @@ class LogRecorderAgent(BaseApiAutomationAgent):
         try:
             # 记录日志
             await self._record_log(message)
-            
+            return None
             # 分析日志（如果需要）
             if self._should_analyze_logs(message):
                 await self._analyze_logs(message.session_id)

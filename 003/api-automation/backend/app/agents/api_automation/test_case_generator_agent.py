@@ -88,7 +88,7 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
         self.generation_metrics["total_generations"] += 1
 
         try:
-            logger.info(f"开始生成测试用例: {message.document_id}, 端点数量: {len(message.endpoints)}")
+            logger.info(f"开始生成测试用例: document_id={message.document_id}, interface_id={getattr(message, 'interface_id', None)}, 端点数量: {len(message.endpoints)}")
 
             # 1. 使用大模型智能生成测试用例
             generation_result = await self._intelligent_generate_test_cases(
@@ -110,6 +110,7 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
             output = TestCaseGenerationOutput(
                 session_id=message.session_id,
                 document_id=message.document_id,
+                interface_id=getattr(message, 'interface_id', None),  # 传递interface_id
                 test_cases=test_cases,
                 coverage_report=coverage_report,
                 generation_summary=generation_summary,
@@ -123,7 +124,7 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
             self._update_metrics("test_case_generation", True, output.processing_time)
 
             # 7. 发送结果到脚本生成智能体
-            await self._send_to_script_generator(output, message, ctx)
+            await self._send_to_script_generator(output, message)
 
             logger.info(f"测试用例生成完成: {message.document_id}, 生成用例数: {len(test_cases)}")
 
@@ -162,20 +163,91 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
             
             # 使用AssistantAgent进行智能生成
             result_content = await self._run_assistant_agent(task_prompt)
-            
-            if result_content:
-                # 提取JSON结果
-                parsed_data = self._extract_json_from_content(result_content)
-                if parsed_data:
-                    return parsed_data
-            
-            # 如果大模型生成失败，使用备用生成方法
-            logger.warning("大模型生成失败，使用备用生成方法")
-            return await self._fallback_generate_test_cases(endpoints, dependencies)
-            
+
+            # 清理和预处理响应内容
+            cleaned_content = self._clean_json_content(result_content)
+
+            # 解析JSON
+            parsed_data = json.loads(cleaned_content)
+            return parsed_data
+            # if result_content:
+            #     # 添加调试日志
+            #     logger.info(f"AI返回内容长度: {len(result_content)}")
+            #     logger.info(f"AI返回内容前200字符: {result_content[:200]}")
+            #     logger.info(f"AI返回内容后200字符: {result_content[-200:]}")
+            #
+            #     # 首先尝试提取JSON结果
+            #     parsed_data = self._extract_json_from_content(result_content)
+            #     if parsed_data:
+            #         logger.info(f"JSON提取成功，结果类型: {type(parsed_data)}")
+            #         if isinstance(parsed_data, dict):
+            #             logger.info(f"JSON顶级键: {list(parsed_data.keys())}")
+            #             if "test_cases" in parsed_data:
+            #                 logger.info(f"包含test_cases数组，长度: {len(parsed_data['test_cases'])}")
+            #             else:
+            #                 logger.warning("JSON结果中缺少test_cases键，可能只提取了部分内容")
+            #         return parsed_data
+            #     else:
+            #         logger.warning("JSON提取失败，内容可能不是有效的JSON格式")
+            #
+            #     # 如果JSON提取失败，尝试智能解析文档格式
+            #     logger.info("JSON提取失败，尝试智能解析文档格式")
+            #     parsed_data = await self._parse_document_format_response(result_content, endpoints)
+            #     if parsed_data:
+            #         return parsed_data
+
         except Exception as e:
             logger.error(f"智能测试用例生成失败: {str(e)}")
-            return await self._fallback_generate_test_cases(endpoints, dependencies)
+            raise
+
+    def _clean_json_content(self, content: str) -> str:
+        """清理和预处理JSON内容，移除无效的JavaScript表达式"""
+        try:
+            import re
+
+            # 移除markdown标记
+            content = content.replace("```json\n", "").replace("```", "").strip()
+
+            # 查找并替换JavaScript表达式模式
+            # 匹配类似 "a".repeat(320) + "@example.com" 的模式
+            js_repeat_pattern = r'"([a-zA-Z])"\s*\.\s*repeat\s*\(\s*(\d+)\s*\)\s*\+\s*"([^"]*)"'
+
+            def replace_js_repeat(match):
+                char = match.group(1)
+                count = int(match.group(2))
+                suffix = match.group(3)
+                # 生成实际的字符串，但限制长度避免过长
+                max_length = min(count, 500)  # 限制最大长度为500字符
+                result = char * max_length + suffix
+                return f'"{result}"'
+
+            content = re.sub(js_repeat_pattern, replace_js_repeat, content)
+
+            # 查找并替换其他可能的JavaScript表达式
+            # 匹配类似 "string".repeat(n) 的模式
+            simple_repeat_pattern = r'"([^"]+)"\s*\.\s*repeat\s*\(\s*(\d+)\s*\)'
+
+            def replace_simple_repeat(match):
+                string = match.group(1)
+                count = int(match.group(2))
+                # 限制重复次数避免过长
+                max_count = min(count, 100)
+                result = string * max_count
+                return f'"{result}"'
+
+            content = re.sub(simple_repeat_pattern, replace_simple_repeat, content)
+
+            # 移除可能的函数调用
+            function_call_pattern = r'[a-zA-Z_][a-zA-Z0-9_]*\s*\([^)]*\)'
+            # 但要小心不要移除JSON中的正常内容，只在字符串值中查找
+
+            logger.debug(f"JSON内容清理完成，长度: {len(content)}")
+            return content
+
+        except Exception as e:
+            logger.warning(f"JSON内容清理失败: {str(e)}")
+            # 如果清理失败，返回基本清理的内容
+            return content.replace("```json\n", "").replace("```", "").strip()
 
     def _format_endpoints_for_generation(self, endpoints: List[ParsedEndpoint]) -> str:
         """格式化端点信息用于生成"""
@@ -303,33 +375,68 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
         return test_cases
 
     def _generate_coverage_report(
-        self, 
-        test_cases: List[GeneratedTestCase], 
+        self,
+        test_cases: List[GeneratedTestCase],
         endpoints: List[ParsedEndpoint]
     ) -> Dict[str, Any]:
-        """生成覆盖度报告"""
+        """生成增强的覆盖度报告"""
         total_endpoints = len(endpoints)
-        covered_endpoints = len(set(tc.endpoint_id for tc in test_cases))
-        
+        covered_endpoint_ids = set(tc.endpoint_id for tc in test_cases)
+        covered_endpoints = len(covered_endpoint_ids)
+
         # 按测试类型统计
         type_coverage = {}
         for test_type in TestCaseType:
             type_cases = [tc for tc in test_cases if tc.test_type == test_type]
             type_coverage[test_type.value] = {
                 "count": len(type_cases),
-                "endpoints_covered": len(set(tc.endpoint_id for tc in type_cases))
+                "endpoints_covered": len(set(tc.endpoint_id for tc in type_cases)),
+                "percentage": (len(set(tc.endpoint_id for tc in type_cases)) / total_endpoints * 100) if total_endpoints > 0 else 0
             }
-        
+
+        # 按HTTP方法统计
+        method_coverage = {}
+        for endpoint in endpoints:
+            method = endpoint.method.value
+            if method not in method_coverage:
+                method_coverage[method] = {"total": 0, "covered": 0}
+            method_coverage[method]["total"] += 1
+            if endpoint.endpoint_id in covered_endpoint_ids:
+                method_coverage[method]["covered"] += 1
+
+        # 计算每个方法的覆盖率
+        for method in method_coverage:
+            total = method_coverage[method]["total"]
+            covered = method_coverage[method]["covered"]
+            method_coverage[method]["percentage"] = (covered / total * 100) if total > 0 else 0
+
+        # 未覆盖的端点详情
+        uncovered_endpoints = []
+        for ep in endpoints:
+            if ep.endpoint_id not in covered_endpoint_ids:
+                uncovered_endpoints.append({
+                    "endpoint_id": ep.endpoint_id,
+                    "method": ep.method.value,
+                    "path": ep.path,
+                    "summary": ep.summary
+                })
+
         return {
             "total_endpoints": total_endpoints,
             "covered_endpoints": covered_endpoints,
             "coverage_percentage": (covered_endpoints / total_endpoints * 100) if total_endpoints > 0 else 0,
             "total_test_cases": len(test_cases),
             "test_cases_by_type": type_coverage,
-            "uncovered_endpoints": [
-                ep.endpoint_id for ep in endpoints 
-                if ep.endpoint_id not in set(tc.endpoint_id for tc in test_cases)
-            ]
+            "method_coverage": method_coverage,
+            "uncovered_endpoints": uncovered_endpoints,
+            "quality_metrics": {
+                "avg_test_cases_per_endpoint": len(test_cases) / total_endpoints if total_endpoints > 0 else 0,
+                "avg_assertions_per_case": sum(len(tc.assertions) for tc in test_cases) / len(test_cases) if test_cases else 0,
+                "endpoints_with_multiple_test_types": len([
+                    ep_id for ep_id in covered_endpoint_ids
+                    if len(set(tc.test_type for tc in test_cases if tc.endpoint_id == ep_id)) > 1
+                ])
+            }
         }
 
     def _generate_summary(
@@ -426,37 +533,253 @@ class TestCaseGeneratorAgent(BaseApiAutomationAgent):
         
         return type_defaults.get(parameter.data_type.value, "test_value")
 
+    async def _parse_document_format_response(
+        self,
+        content: str,
+        endpoints: List[ParsedEndpoint]
+    ) -> Dict[str, Any]:
+        """智能解析文档格式的响应内容"""
+        try:
+            import re
+
+            test_cases = []
+
+            # 解析测试用例标题和内容
+            # 匹配类似 "**FT-001: 有效凭证登录成功**" 的模式
+            test_case_pattern = r'\*\*([^*]+)\*\*\s*\n-\s*\*\*描述\*\*:\s*([^\n]+)'
+            test_case_matches = re.findall(test_case_pattern, content)
+
+            for i, (title, description) in enumerate(test_case_matches):
+                # 提取测试用例ID和名称
+                title_parts = title.split(':', 1)
+                test_id = title_parts[0].strip() if len(title_parts) > 1 else f"TC_{i+1:03d}"
+                test_name = title_parts[1].strip() if len(title_parts) > 1 else title.strip()
+
+                # 确定测试类型
+                test_type = self._determine_test_type_from_content(test_id, test_name, description)
+
+                # 查找对应的端点
+                endpoint_id = self._find_matching_endpoint(content, endpoints)
+
+                # 提取测试数据
+                test_data = self._extract_test_data_from_section(content, test_id)
+
+                # 生成基本断言
+                assertions = self._generate_basic_assertions(test_type)
+
+                test_case = {
+                    "test_name": test_name,
+                    "endpoint_id": endpoint_id,
+                    "test_type": test_type,
+                    "description": description,
+                    "test_data": test_data,
+                    "assertions": assertions,
+                    "setup_steps": [],
+                    "cleanup_steps": [],
+                    "priority": self._determine_priority_from_type(test_type),
+                    "tags": self._generate_tags_from_type(test_type)
+                }
+
+                test_cases.append(test_case)
+
+            # 如果没有找到结构化的测试用例，生成基础测试用例
+            if not test_cases:
+                test_cases = self._generate_basic_test_cases_from_content(content, endpoints)
+
+            return {
+                "test_cases": test_cases,
+                "generation_method": "document_parsing",
+                "confidence_score": 0.7
+            }
+
+        except Exception as e:
+            logger.error(f"解析文档格式失败: {str(e)}")
+            return None
+
+    def _determine_test_type_from_content(self, test_id: str, test_name: str, description: str) -> str:
+        """从内容确定测试类型"""
+        content_lower = f"{test_id} {test_name} {description}".lower()
+
+        if any(keyword in content_lower for keyword in ['错误', '异常', '失败', 'error', 'invalid', 'wrong']):
+            return "negative"
+        elif any(keyword in content_lower for keyword in ['边界', '最大', '最小', 'boundary', 'max', 'min', 'limit']):
+            return "boundary"
+        elif any(keyword in content_lower for keyword in ['安全', '注入', '攻击', 'security', 'injection', 'attack']):
+            return "security"
+        elif any(keyword in content_lower for keyword in ['性能', '并发', '负载', 'performance', 'load', 'concurrent']):
+            return "performance"
+        else:
+            return "positive"
+
+    def _find_matching_endpoint(self, content: str, endpoints: List[ParsedEndpoint]) -> str:
+        """查找匹配的端点ID"""
+        if not endpoints:
+            return "unknown_endpoint"
+
+        # 在内容中查找端点路径
+        for endpoint in endpoints:
+            if endpoint.path in content:
+                return endpoint.endpoint_id
+
+        # 默认返回第一个端点
+        return endpoints[0].endpoint_id
+
+    def _extract_test_data_from_section(self, content: str, test_id: str) -> List[Dict[str, Any]]:
+        """从内容段落中提取测试数据"""
+        import re
+
+        test_data = []
+
+        # 查找JSON格式的请求体
+        json_pattern = r'"([^"]+)":\s*"([^"]+)"'
+        json_matches = re.findall(json_pattern, content)
+
+        for param_name, param_value in json_matches:
+            if param_name in ['email', 'password', 'username', 'phone', 'name']:
+                test_data.append({
+                    "parameter_name": param_name,
+                    "test_value": param_value,
+                    "value_description": f"测试用例 {test_id} 的 {param_name} 参数"
+                })
+
+        return test_data
+
+    def _generate_basic_assertions(self, test_type: str) -> List[Dict[str, Any]]:
+        """生成基本断言"""
+        assertions = [
+            {
+                "assertion_type": "status_code",
+                "expected_value": "200" if test_type == "positive" else "400",
+                "comparison_operator": "equals",
+                "description": f"验证{test_type}测试的状态码"
+            }
+        ]
+
+        if test_type == "positive":
+            assertions.append({
+                "assertion_type": "response_body",
+                "expected_value": "success",
+                "comparison_operator": "contains",
+                "description": "验证响应包含成功标识"
+            })
+
+        return assertions
+
+    def _determine_priority_from_type(self, test_type: str) -> int:
+        """根据测试类型确定优先级"""
+        priority_map = {
+            "positive": 1,
+            "negative": 2,
+            "boundary": 3,
+            "security": 2,
+            "performance": 4
+        }
+        return priority_map.get(test_type, 3)
+
+    def _generate_tags_from_type(self, test_type: str) -> List[str]:
+        """根据测试类型生成标签"""
+        base_tags = [test_type]
+
+        if test_type == "positive":
+            base_tags.append("smoke")
+        elif test_type == "security":
+            base_tags.extend(["security", "critical"])
+        elif test_type == "performance":
+            base_tags.extend(["performance", "load"])
+
+        return base_tags
+
+    def _generate_basic_test_cases_from_content(
+        self,
+        content: str,
+        endpoints: List[ParsedEndpoint]
+    ) -> List[Dict[str, Any]]:
+        """从内容生成基础测试用例"""
+        test_cases = []
+
+        for endpoint in endpoints:
+            # 为每个端点生成一个基本的正向测试用例
+            test_case = {
+                "test_name": f"test_{endpoint.method.value.lower()}_{endpoint.path.replace('/', '_').replace('{', '').replace('}', '')}",
+                "endpoint_id": endpoint.endpoint_id,
+                "test_type": "positive",
+                "description": f"测试 {endpoint.method.value} {endpoint.path} 的基本功能",
+                "test_data": [
+                    {
+                        "parameter_name": param.name,
+                        "test_value": self._generate_default_test_value(param),
+                        "value_description": f"默认测试值"
+                    }
+                    for param in endpoint.parameters if param.required
+                ],
+                "assertions": [
+                    {
+                        "assertion_type": "status_code",
+                        "expected_value": "200",
+                        "comparison_operator": "equals",
+                        "description": "验证响应状态码为200"
+                    }
+                ],
+                "setup_steps": [],
+                "cleanup_steps": [],
+                "priority": 1,
+                "tags": ["basic", "positive"]
+            }
+            test_cases.append(test_case)
+
+        return test_cases
+
     async def _send_to_script_generator(
-        self, 
-        output: TestCaseGenerationOutput, 
+        self,
+        output: TestCaseGenerationOutput,
         original_input: TestCaseGenerationInput,
-        ctx: MessageContext
     ):
         """发送测试用例到脚本生成智能体"""
         try:
             from .schemas import ScriptGenerationInput
-            
-            # 构建脚本生成输入
+
+            # 构建增强的生成选项
+            enhanced_generation_options = {
+                **original_input.generation_options,
+                "test_case_count": len(output.test_cases),
+                "coverage_percentage": output.coverage_report.get("coverage_percentage", 0),
+                "generation_method": output.generation_summary.get("generation_method", "intelligent"),
+                "confidence_score": output.generation_summary.get("confidence_score", 0.8),
+                "test_types_distribution": output.generation_summary.get("test_case_distribution", {}),
+                "generation_config": self.generation_config
+            }
+
+            # 构建脚本生成输入 - 修复数据传输问题
             script_input = ScriptGenerationInput(
                 session_id=output.session_id,
                 document_id=output.document_id,
+                interface_id=output.interface_id,  # 使用输出中的interface_id
                 api_info=original_input.api_info,
                 endpoints=original_input.endpoints,
                 test_cases=output.test_cases,
+                dependencies=original_input.dependencies,  # 修复：传递依赖关系
                 execution_groups=original_input.execution_groups,
-                generation_options={}
+                generation_options=enhanced_generation_options  # 修复：传递增强的生成选项
             )
-            
+
             # 发送到脚本生成智能体
             await self.runtime.publish_message(
                 script_input,
                 topic_id=TopicId(type=TopicTypes.TEST_SCRIPT_GENERATOR.value, source=self.agent_name)
             )
-            
-            logger.info(f"已发送测试用例到脚本生成智能体: {output.document_id}")
-            
+
+            logger.info(
+                f"已发送测试用例到脚本生成智能体: {output.document_id}, "
+                f"测试用例数: {len(output.test_cases)}, "
+                f"覆盖率: {output.coverage_report.get('coverage_percentage', 0):.1f}%"
+            )
+
         except Exception as e:
             logger.error(f"发送到脚本生成智能体失败: {str(e)}")
+            # 记录详细错误信息用于调试
+            logger.debug(f"发送失败的详细信息 - session_id: {output.session_id}, "
+                        f"document_id: {output.document_id}, "
+                        f"test_cases_count: {len(output.test_cases)}")
 
     def get_generation_statistics(self) -> Dict[str, Any]:
         """获取生成统计信息"""

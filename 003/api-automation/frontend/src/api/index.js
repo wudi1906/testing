@@ -54,7 +54,7 @@ export default {
   triggerDocumentParse: (sessionId, config = {}) => request.post(`/api-automation/parse-document/${sessionId}`, config),
   parseApiDocument: (data = {}) => request.post('/api-automation/parse-document', data),
   getParseResult: (params = {}) => request.get('/api-automation/parse-result', { params }),
-  getApiDocuments: (params = {}) => request.get('/api-automation/documents', { params }),
+  getApiAutomationDocuments: (params = {}) => request.get('/api-automation/documents', { params }),
   getDocumentDetail: (params = {}) => request.get('/api-automation/document-detail', { params }),
 
   // 接口管理
@@ -72,6 +72,27 @@ export default {
   getInterfaceStatistics: () => request.get('/interface/statistics'),
   generateInterfaceScript: (interfaceId) => request.post(`/interface/interfaces/${interfaceId}/generate-script`),
   getScriptGenerationStatus: (sessionId) => request.get(`/interface/script-generation/${sessionId}/status`),
+  getSessionLogs: (sessionId, params = {}) => request.get(`/interface/session-logs/${sessionId}`, { params }),
+
+  // 脚本管理API（已迁移到新模块）
+  getAllScripts: (params = {}) => request.get('/scripts', { params }),
+  getInterfaceScripts: (interfaceId, includeInactive = false) => request.get(`/scripts/interfaces/${interfaceId}/scripts`, { params: { include_inactive: includeInactive } }),
+  getInterfaceScriptStatistics: (interfaceId) => request.get(`/scripts/interfaces/${interfaceId}/scripts/statistics`),
+  getScriptGenerationHistory: (interfaceId, limit = 10) => request.get(`/scripts/interfaces/${interfaceId}/scripts/generation-history`, { params: { limit } }),
+  getDocumentScriptOverview: (documentId) => request.get(`/scripts/documents/${documentId}/scripts/overview`),
+  getScriptDetail: (scriptId) => request.get(`/scripts/${scriptId}`),
+  updateScriptStatus: (scriptId, data) => request.put(`/scripts/${scriptId}/status`, data),
+  deleteScript: (scriptId, softDelete = true) => request.delete(`/scripts/${scriptId}`, { params: { soft_delete: softDelete } }),
+  batchUpdateScriptStatus: (data) => request.put('/scripts/batch-status', data),
+
+  // 脚本执行API（新模块）
+  executeScripts: (data) => request.post('/scripts/execute', data),
+  executeSingleScript: (scriptId, data = {}) => request.post(`/scripts/${scriptId}/execute`, data),
+  getScriptExecutionResult: (scriptId, executionId) => request.get(`/scripts/${scriptId}/execution/${executionId}`),
+  getScriptExecutionHistory: (scriptId, params = {}) => request.get(`/scripts/${scriptId}/executions`, { params }),
+  getScriptExecutionDetail: (executionId) => request.get(`/scripts/executions/${executionId}`),
+  getScriptExecutionLogs: (executionId, params = {}) => request.get(`/scripts/executions/${executionId}/logs`, { params }),
+  stopScriptExecution: (executionId) => request.post(`/scripts/executions/${executionId}/stop`),
 
   // 原有接口管理（保持兼容）
   getApiEndpoints: (params = {}) => request.get('/api-automation/endpoints', { params }),
@@ -120,4 +141,17 @@ export default {
   // 系统管理
   getSystemLogs: (params = {}) => request.get('/api-automation/logs', { params }),
   getAgentMetrics: (params = {}) => request.get('/api-automation/metrics', { params }),
+
+  // 执行报告API（新模块）
+  getExecutionReports: (params = {}) => request.get('/execution-reports', { params }),
+  getExecutionReportDetail: (executionId) => request.get(`/execution-reports/${executionId}`),
+  getExecutionStatistics: (params = {}) => request.get('/execution-reports/statistics/summary', { params }),
+  generateExecutionReport: (executionId, data) => request.post(`/execution-reports/${executionId}/generate`, data),
+  previewReportFile: (executionId, fileName) => request.get(`/execution-reports/${executionId}/preview/${fileName}`, { responseType: 'text' }),
+  getReportDownloadUrl: (executionId, fileName) => `/api/v1/execution-reports/${executionId}/download/${fileName}`,
+  getExecutionLogs: (executionId, params = {}) => request.get(`/execution-reports/${executionId}/logs`, { params }),
+  deleteExecutionReport: (executionId) => request.delete(`/execution-reports/${executionId}`),
+  exportExecutionReport: (executionId, format = 'json') => request.get(`/execution-reports/${executionId}/export`, { params: { format } }),
+  shareExecutionReport: (executionId) => request.post(`/execution-reports/${executionId}/share`),
+  getSharedReport: (shareToken) => request.get(`/execution-reports/shared/${shareToken}`),
 }

@@ -64,8 +64,8 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
             "enable_allure": True,
             "enable_data_driven": True,
             "enable_parallel": True,
-            "include_utils": True,
-            "include_config": True,
+            "single_script_mode": True,  # 新增：单脚本模式
+            "include_fixtures_inline": True,  # 新增：内联fixture
             "code_style": "pep8"
         }
 
@@ -86,26 +86,65 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
         self.generation_metrics["total_generations"] += 1
 
         try:
-            logger.info(f"开始生成测试脚本: {message.document_id}, 测试用例数量: {len(message.test_cases)}")
+            logger.info(
+                f"开始生成测试脚本: document_id={message.document_id}, "
+                f"interface_id={getattr(message, 'interface_id', None)}, "
+                f"测试用例数量: {len(message.test_cases)}, "
+                f"端点数量: {len(message.endpoints)}, "
+                f"依赖关系数量: {len(getattr(message, 'dependencies', []))}"
+            )
+
+            # 记录开始生成脚本的日志
+            await self._log_operation_start(
+                message.session_id,
+                "script_generation",
+                {
+                    "document_id": message.document_id,
+                    "interface_id": getattr(message, 'interface_id', None),
+                    "test_cases_count": len(message.test_cases),
+                    "endpoints_count": len(message.endpoints),
+                    "dependencies_count": len(getattr(message, 'dependencies', []))
+                }
+            )
+
+            await self._log_operation_progress(
+                message.session_id,
+                "script_generation",
+                "智能生成测试脚本"
+            )
 
             # 1. 使用大模型智能生成测试脚本
             generation_result = await self._intelligent_generate_scripts(
-                message.api_info, message.endpoints, message.test_cases, message.execution_groups
+                message.api_info,
+                message.endpoints,
+                message.test_cases,
+                getattr(message, 'dependencies', []),  # 处理依赖关系
+                message.execution_groups,
+                message.generation_options  # 使用传递的生成选项
             )
             
-            # 2. 构建脚本对象
+            await self._log_operation_progress(
+                message.session_id,
+                "script_generation",
+                "构建脚本对象",
+                {"scripts_count": len(generation_result.get("scripts", []))}
+            )
+
+            # 2. 构建脚本对象（单脚本模式）
             scripts = self._build_script_objects(
                 generation_result.get("scripts", []), message.test_cases
             )
-            
-            # 3. 生成配置文件
-            config_files = self._generate_config_files(message.api_info, scripts)
-            
-            # 4. 生成依赖文件
+
+            await self._log_operation_progress(
+                message.session_id,
+                "script_generation",
+                "生成配置文件"
+            )
+
+            # 3. 简化配置（仅生成必要的配置信息）
+            config_files = {}  # 不再生成额外的配置文件
             requirements_txt = self._generate_requirements_txt()
-            
-            # 5. 生成README文档
-            readme_content = self._generate_readme_content(message.api_info, scripts)
+            readme_content = self._generate_simple_readme_content(message.api_info, scripts)
             
             # 6. 生成摘要信息
             generation_summary = self._generate_summary(scripts, generation_result)
@@ -114,6 +153,7 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
             output = ScriptGenerationOutput(
                 session_id=message.session_id,
                 document_id=message.document_id,
+                interface_id=getattr(message, 'interface_id', None),  # 传递interface_id
                 scripts=scripts,
                 config_files=config_files,
                 requirements_txt=requirements_txt,
@@ -130,11 +170,32 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
             )
             self._update_metrics("script_generation", True, output.processing_time)
 
+            await self._log_operation_progress(
+                message.session_id,
+                "script_generation",
+                "保存生成文件"
+            )
+
             # 9. 保存生成的文件到磁盘
             await self._save_generated_files(output)
 
+            await self._log_operation_progress(
+                message.session_id,
+                "script_generation",
+                "发送到数据持久化智能体"
+            )
+
             # 10. 发送脚本到数据持久化智能体
             await self._send_to_persistence_agent(output, message, ctx)
+
+            await self._log_operation_complete(
+                message.session_id,
+                "script_generation",
+                {
+                    "scripts_count": len(scripts),
+                    "processing_time": output.processing_time
+                }
+            )
 
             logger.info(f"脚本生成完成: {message.document_id}, 生成脚本数: {len(scripts)}")
 
@@ -142,17 +203,31 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
             self.generation_metrics["failed_generations"] += 1
             self._update_metrics("script_generation", False)
             error_info = self._handle_common_error(e, "script_generation")
+
+            await self._log_operation_error(
+                message.session_id,
+                "script_generation",
+                e
+            )
+
             logger.error(f"脚本生成失败: {error_info}")
 
     async def _intelligent_generate_scripts(
-        self, 
-        api_info, 
+        self,
+        api_info,
         endpoints: List[ParsedEndpoint],
         test_cases: List[GeneratedTestCase],
-        execution_groups
+        dependencies: List = None,
+        execution_groups = None,
+        generation_options: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """使用大模型智能生成测试脚本"""
         try:
+            # 设置默认值
+            dependencies = dependencies or []
+            execution_groups = execution_groups or []
+            generation_options = generation_options or {}
+
             # 构建生成任务提示词
             api_info_str = json.dumps({
                 "title": api_info.title,
@@ -160,16 +235,20 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
                 "description": api_info.description,
                 "base_url": api_info.base_url
             }, indent=2, ensure_ascii=False)
-            
+
             endpoints_info = self._format_endpoints_for_generation(endpoints)
             test_cases_info = self._format_test_cases_for_generation(test_cases)
+            dependencies_info = self._format_dependencies_for_generation(dependencies)
             groups_info = self._format_execution_groups_for_generation(execution_groups)
-            
+            options_info = json.dumps(generation_options, indent=2, ensure_ascii=False)
+
             task_prompt = AgentPrompts.SCRIPT_GENERATOR_TASK_PROMPT.format(
                 api_info=api_info_str,
                 endpoints=endpoints_info,
                 test_cases=test_cases_info,
-                execution_groups=groups_info
+                dependencies=dependencies_info,
+                execution_groups=groups_info,
+                generation_options=options_info
             )
             
             # 使用AssistantAgent进行智能生成
@@ -183,11 +262,11 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
             
             # 如果大模型生成失败，使用备用生成方法
             logger.warning("大模型生成失败，使用备用生成方法")
-            return await self._fallback_generate_scripts(endpoints, test_cases)
-            
+            return await self._fallback_generate_scripts(endpoints, test_cases, dependencies)
+
         except Exception as e:
             logger.error(f"智能脚本生成失败: {str(e)}")
-            return await self._fallback_generate_scripts(endpoints, test_cases)
+            return await self._fallback_generate_scripts(endpoints, test_cases, dependencies)
 
     def _format_endpoints_for_generation(self, endpoints: List[ParsedEndpoint]) -> str:
         """格式化端点信息用于生成"""
@@ -251,6 +330,24 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
         
         return json.dumps(formatted_cases, indent=2, ensure_ascii=False)
 
+    def _format_dependencies_for_generation(self, dependencies) -> str:
+        """格式化依赖关系信息用于生成"""
+        if not dependencies:
+            return "[]"
+
+        formatted_deps = []
+        for dep in dependencies:
+            dep_info = {
+                "source_endpoint_id": dep.source_endpoint_id,
+                "target_endpoint_id": dep.target_endpoint_id,
+                "dependency_type": dep.dependency_type.value if hasattr(dep.dependency_type, 'value') else str(dep.dependency_type),
+                "description": dep.description,
+                "data_mapping": dep.data_mapping
+            }
+            formatted_deps.append(dep_info)
+
+        return json.dumps(formatted_deps, indent=2, ensure_ascii=False)
+
     def _format_execution_groups_for_generation(self, execution_groups) -> str:
         """格式化执行组信息用于生成"""
         formatted_groups = []
@@ -294,123 +391,10 @@ class ScriptGeneratorAgent(BaseApiAutomationAgent):
         return scripts
 
     def _generate_config_files(self, api_info, scripts: List[GeneratedScript]) -> Dict[str, str]:
-        """生成配置文件"""
-        config_files = {}
-        
-        # pytest.ini配置
-        config_files["pytest.ini"] = f"""[tool:pytest]
-testpaths = tests
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
-addopts = -v --tb=short --allure-dir=reports/allure-results
-markers =
-    positive: 正向测试用例
-    negative: 负向测试用例
-    boundary: 边界测试用例
-    security: 安全测试用例
-    performance: 性能测试用例
-"""
-
-        # conftest.py配置
-        config_files["conftest.py"] = f'''"""
-pytest配置文件
-"""
-import pytest
-import requests
-from typing import Dict, Any
-
-@pytest.fixture(scope="session")
-def api_config():
-    """API配置"""
-    return {{
-        "base_url": "{api_info.base_url}",
-        "timeout": 30,
-        "headers": {{
-            "Content-Type": "application/json",
-            "User-Agent": "API-Test-Agent/1.0"
-        }}
-    }}
-
-@pytest.fixture(scope="session")
-def api_client(api_config):
-    """API客户端"""
-    session = requests.Session()
-    session.headers.update(api_config["headers"])
-    return session
-
-@pytest.fixture(scope="function")
-def test_data():
-    """测试数据"""
-    return {{}}
-'''
-
-        # API工具类
-        config_files["api_utils.py"] = '''"""
-API测试工具类
-"""
-import json
-import requests
-from typing import Dict, Any, Optional
-
-class APIClient:
-    """API客户端封装"""
-    
-    def __init__(self, base_url: str, timeout: int = 30):
-        self.base_url = base_url.rstrip('/')
-        self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Content-Type": "application/json",
-            "User-Agent": "API-Test-Client/1.0"
-        })
-    
-    def request(self, method: str, path: str, **kwargs) -> requests.Response:
-        """发送HTTP请求"""
-        url = f"{self.base_url}{path}"
-        return self.session.request(method, url, timeout=self.timeout, **kwargs)
-    
-    def get(self, path: str, **kwargs) -> requests.Response:
-        """GET请求"""
-        return self.request("GET", path, **kwargs)
-    
-    def post(self, path: str, **kwargs) -> requests.Response:
-        """POST请求"""
-        return self.request("POST", path, **kwargs)
-    
-    def put(self, path: str, **kwargs) -> requests.Response:
-        """PUT请求"""
-        return self.request("PUT", path, **kwargs)
-    
-    def delete(self, path: str, **kwargs) -> requests.Response:
-        """DELETE请求"""
-        return self.request("DELETE", path, **kwargs)
-
-class ResponseValidator:
-    """响应验证器"""
-    
-    @staticmethod
-    def validate_status_code(response: requests.Response, expected: int):
-        """验证状态码"""
-        assert response.status_code == expected, f"期望状态码 {expected}, 实际 {response.status_code}"
-    
-    @staticmethod
-    def validate_json_schema(response: requests.Response, schema: Dict[str, Any]):
-        """验证JSON结构"""
-        try:
-            data = response.json()
-            # 这里可以集成jsonschema库进行验证
-            assert isinstance(data, dict), "响应不是有效的JSON对象"
-        except json.JSONDecodeError:
-            assert False, "响应不是有效的JSON格式"
-    
-    @staticmethod
-    def validate_response_time(response: requests.Response, max_time: float):
-        """验证响应时间"""
-        assert response.elapsed.total_seconds() <= max_time, f"响应时间超过 {max_time} 秒"
-'''
-
-        return config_files
+        """生成配置文件（已废弃 - 单脚本模式不需要额外配置文件）"""
+        # 在单脚本模式下，不再生成额外的配置文件
+        # 所有配置都内嵌在测试脚本中
+        return {}
 
     def _generate_requirements_txt(self) -> str:
         """生成依赖文件"""
@@ -481,137 +465,413 @@ allure serve reports/allure-results
 """
 
     def _generate_summary(
-        self, 
-        scripts: List[GeneratedScript], 
+        self,
+        scripts: List[GeneratedScript],
         generation_result: Dict[str, Any]
     ) -> Dict[str, Any]:
         """生成摘要信息"""
         return {
             "total_scripts": len(scripts),
             "total_test_methods": sum(len(script.test_case_ids) for script in scripts),
-            "generation_method": generation_result.get("generation_method", "intelligent"),
+            "generation_method": generation_result.get("generation_method", "intelligent_single_script"),
             "confidence_score": generation_result.get("confidence_score", 0.8),
             "framework": self.generation_config["framework"],
+            "script_mode": "single_script",  # 新增：标识单脚本模式
             "features_enabled": {
                 "allure_reporting": self.generation_config["enable_allure"],
                 "data_driven_testing": self.generation_config["enable_data_driven"],
-                "parallel_execution": self.generation_config["enable_parallel"]
+                "parallel_execution": self.generation_config["enable_parallel"],
+                "inline_fixtures": self.generation_config["include_fixtures_inline"],
+                "self_contained": True  # 新增：自包含标识
             },
-            "generation_config": self.generation_config
+            "generation_config": self.generation_config,
+            "optimization_notes": [
+                "生成单一完整测试脚本",
+                "所有fixture和工具函数内嵌在脚本中",
+                "无需额外配置文件",
+                "脚本可独立运行"
+            ]
         }
 
     async def _fallback_generate_scripts(
-        self, 
+        self,
         endpoints: List[ParsedEndpoint],
-        test_cases: List[GeneratedTestCase]
+        test_cases: List[GeneratedTestCase],
+        dependencies: List = None
     ) -> Dict[str, Any]:
-        """备用脚本生成方法"""
+        """备用脚本生成方法 - 生成单一完整脚本"""
         try:
-            # 生成基础测试脚本
-            script_content = self._generate_basic_script_template(endpoints, test_cases)
-            
+            # 生成完整的自包含测试脚本
+            script_content = self._generate_complete_script_template(endpoints, test_cases, dependencies)
+
             scripts = [{
-                "script_name": "test_api_basic.py",
-                "file_path": "test_api_basic.py",
+                "script_name": "test_api_automation.py",
+                "file_path": "test_api_automation.py",
                 "script_content": script_content,
                 "test_case_ids": [tc.test_case_id for tc in test_cases],
                 "framework": "pytest",
-                "dependencies": ["pytest", "requests"],
+                "dependencies": ["pytest", "requests", "allure-pytest"],
                 "execution_order": 1
             }]
-            
+
             return {
                 "scripts": scripts,
-                "confidence_score": 0.6,
-                "generation_method": "fallback_basic"
+                "confidence_score": 0.7,
+                "generation_method": "fallback_single_script"
             }
-            
+
         except Exception as e:
             logger.error(f"备用脚本生成失败: {str(e)}")
             return {"scripts": [], "confidence_score": 0.3}
 
-    def _generate_basic_script_template(
-        self, 
+    def _generate_complete_script_template(
+        self,
         endpoints: List[ParsedEndpoint],
-        test_cases: List[GeneratedTestCase]
+        test_cases: List[GeneratedTestCase],
+        dependencies: List = None
     ) -> str:
-        """生成基础脚本模板"""
+        """生成完整的自包含脚本模板"""
+        dependencies = dependencies or []
+
+        # 获取API基础URL（从第一个端点推断）
+        base_url = "http://localhost:8000"  # 默认值
+        if endpoints:
+            # 尝试从端点路径推断基础URL
+            base_url = "http://localhost:8000"  # 可以根据实际情况调整
+
         return f'''"""
-API自动化测试脚本 - 基础版本
+API自动化测试脚本 - 完整自包含版本
 自动生成于 {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+此脚本包含所有必要的配置、工具函数和测试用例，可以独立运行。
+
+运行方式：
+    pytest test_api_automation.py -v
+    pytest test_api_automation.py --allure-dir=reports
 """
 import pytest
 import requests
 import json
-from api_utils import APIClient, ResponseValidator
+import time
+from typing import Dict, Any, Optional
+from urllib.parse import urljoin
 
-class TestAPI:
-    """API测试类"""
-    
-    @pytest.fixture(autouse=True)
-    def setup(self, api_config):
-        """测试初始化"""
-        self.client = APIClient(api_config["base_url"])
-        self.validator = ResponseValidator()
-    
-{chr(10).join(self._generate_test_method(tc, endpoints) for tc in test_cases)}
+# ============================================================================
+# 配置常量
+# ============================================================================
+
+API_BASE_URL = "{base_url}"
+DEFAULT_TIMEOUT = 30
+DEFAULT_HEADERS = {{
+    "Content-Type": "application/json",
+    "User-Agent": "API-Test-Automation/1.0"
+}}
+
+# ============================================================================
+# 公共Fixture定义
+# ============================================================================
+
+@pytest.fixture(scope="session")
+def api_config():
+    """API配置信息"""
+    return {{
+        "base_url": API_BASE_URL,
+        "timeout": DEFAULT_TIMEOUT,
+        "headers": DEFAULT_HEADERS.copy()
+    }}
+
+@pytest.fixture(scope="session")
+def api_client(api_config):
+    """API客户端会话"""
+    session = requests.Session()
+    session.headers.update(api_config["headers"])
+    return session
+
+@pytest.fixture(scope="function")
+def test_data():
+    """测试数据"""
+    return {{
+        "timestamp": int(time.time()),
+        "test_id": f"test_{{int(time.time())}}"
+    }}
+
+# ============================================================================
+# 工具函数定义
+# ============================================================================
+
+def make_request(client: requests.Session, method: str, path: str,
+                base_url: str = API_BASE_URL, **kwargs) -> requests.Response:
+    """发送HTTP请求的统一方法"""
+    url = urljoin(base_url.rstrip('/') + '/', path.lstrip('/'))
+
+    # 设置默认超时
+    if 'timeout' not in kwargs:
+        kwargs['timeout'] = DEFAULT_TIMEOUT
+
+    try:
+        response = client.request(method.upper(), url, **kwargs)
+        return response
+    except requests.exceptions.RequestException as e:
+        pytest.fail(f"请求失败: {{method}} {{url}} - {{str(e)}}")
+
+def validate_response_status(response: requests.Response, expected_status: int = 200):
+    """验证响应状态码"""
+    assert response.status_code == expected_status, \\
+        f"期望状态码 {{expected_status}}, 实际状态码 {{response.status_code}}, 响应内容: {{response.text[:200]}}"
+
+def validate_response_json(response: requests.Response) -> Dict[str, Any]:
+    """验证并返回JSON响应"""
+    try:
+        return response.json()
+    except json.JSONDecodeError:
+        pytest.fail(f"响应不是有效的JSON格式: {{response.text[:200]}}")
+
+def validate_response_time(response: requests.Response, max_time: float = 5.0):
+    """验证响应时间"""
+    response_time = response.elapsed.total_seconds()
+    assert response_time <= max_time, \\
+        f"响应时间 {{response_time:.2f}}s 超过最大允许时间 {{max_time}}s"
+
+def validate_json_structure(data: Dict[str, Any], required_fields: list):
+    """验证JSON结构包含必需字段"""
+    for field in required_fields:
+        assert field in data, f"响应JSON缺少必需字段: {{field}}"
+
+# ============================================================================
+# 测试类定义
+# ============================================================================
+
+class TestAPIAutomation:
+    """API自动化测试类"""
+
+{self._generate_complete_test_methods(test_cases, endpoints)}
 '''
 
-    def _generate_test_method(self, test_case: GeneratedTestCase, endpoints: List[ParsedEndpoint]) -> str:
-        """生成测试方法"""
-        endpoint = next((ep for ep in endpoints if ep.endpoint_id == test_case.endpoint_id), None)
-        if not endpoint:
-            return ""
-        
+    def _generate_complete_test_methods(self, test_cases: List[GeneratedTestCase], endpoints: List[ParsedEndpoint]) -> str:
+        """生成完整的测试方法集合"""
+        methods = []
+
+        for test_case in test_cases:
+            endpoint = next((ep for ep in endpoints if ep.endpoint_id == test_case.endpoint_id), None)
+            if not endpoint:
+                continue
+
+            method_content = self._generate_single_test_method(test_case, endpoint)
+            methods.append(method_content)
+
+        return "\n".join(methods)
+
+    def _generate_single_test_method(self, test_case: GeneratedTestCase, endpoint: ParsedEndpoint) -> str:
+        """生成单个测试方法"""
         method_name = test_case.test_name.replace(" ", "_").replace("-", "_").lower()
         if not method_name.startswith("test_"):
             method_name = f"test_{method_name}"
-        
-        return f'''    def {method_name}(self):
+
+        # 生成测试数据
+        test_data_setup = self._generate_test_data_setup(test_case)
+
+        # 生成请求参数
+        request_params = self._generate_request_params(test_case, endpoint)
+
+        # 生成断言
+        assertions = self._generate_assertions(test_case)
+
+        # 检查是否有状态码断言
+        has_status_assertion = any(a.assertion_type.value == "status_code" for a in test_case.assertions)
+
+        return f'''    def {method_name}(self, api_client, api_config, test_data):
         """
         {test_case.description}
         测试类型: {test_case.test_type.value}
+        端点: {endpoint.method.value} {endpoint.path}
         """
+        # 测试数据准备
+{test_data_setup}
+
         # 发送请求
-        response = self.client.{endpoint.method.value.lower()}(
+        response = make_request(
+            api_client,
+            "{endpoint.method.value}",
             "{endpoint.path}",
-            # 这里需要根据实际测试数据填充参数
+            api_config["base_url"],
+{request_params}
         )
-        
-        # 验证响应
-        self.validator.validate_status_code(response, 200)
-        
-        # 其他断言
-        assert response.json() is not None
+
+        # 基础验证
+        {"# 状态码验证在自定义断言中进行" if has_status_assertion else "validate_response_status(response, 200)"}
+        validate_response_time(response, 5.0)
+
+{assertions}
+
+        # 记录测试结果
+        print(f"✅ {{test_data['test_id']}} - {test_case.test_name} 测试通过")
 '''
 
+    def _generate_test_data_setup(self, test_case: GeneratedTestCase) -> str:
+        """生成测试数据设置代码"""
+        if not test_case.test_data:
+            return "        # 无需特殊测试数据"
+
+        setup_lines = []
+        for data_item in test_case.test_data:
+            # 确保变量名符合Python命名规范
+            var_name = data_item.parameter_name.replace("-", "_").replace(".", "_")
+            # 确保变量名是有效的Python标识符
+            if not var_name.isidentifier():
+                var_name = f"param_{var_name}"
+
+            setup_lines.append(f'        {var_name} = "{data_item.test_value}"  # {data_item.value_description}')
+
+        return "\n".join(setup_lines)
+
+    def _generate_request_params(self, test_case: GeneratedTestCase, endpoint: ParsedEndpoint) -> str:
+        """生成请求参数代码"""
+        params = []
+
+        # 构建请求体数据
+        if test_case.test_data and endpoint.method.value in ["POST", "PUT", "PATCH"]:
+            json_fields = []
+            header_fields = []
+
+            for data_item in test_case.test_data:
+                var_name = data_item.parameter_name.replace("-", "_").replace(".", "_")
+                if not var_name.isidentifier():
+                    var_name = f"param_{var_name}"
+
+                # 区分请求体参数和header参数
+                if data_item.parameter_name.lower() in ['access-token', 'fecshop-currency', 'fecshop-lang']:
+                    # 这些是header参数
+                    header_key = data_item.parameter_name
+                    header_fields.append(f'"{header_key}": {var_name}')
+                else:
+                    # 这些是请求体参数
+                    json_fields.append(f'"{data_item.parameter_name}": {var_name}')
+
+            if json_fields:
+                json_data = "{" + ", ".join(json_fields) + "}"
+                params.append(f'            json={json_data},')
+
+            if header_fields:
+                headers_data = "{" + ", ".join(header_fields) + "}"
+                params.append(f'            headers={headers_data}')
+
+        # 根据端点参数类型生成其他参数
+        has_query_params = any(p.location.value == "query" for p in endpoint.parameters)
+
+        if has_query_params and not any("params=" in p for p in params):
+            params.append('            # params={}  # 查询参数（如需要）')
+
+        if not params:
+            params.append('            # 无需额外参数')
+
+        return "\n".join(params)
+
+    def _generate_assertions(self, test_case: GeneratedTestCase) -> str:
+        """生成断言代码"""
+        if not test_case.assertions:
+            return """        # 自定义断言验证
+        response_data = validate_response_json(response)
+        assert response_data is not None"""
+
+        assertion_lines = ["        # 自定义断言验证"]
+        assertion_lines.append("        response_data = validate_response_json(response)")
+
+        # 检查是否有状态码断言，避免重复验证
+        has_status_assertion = any(a.assertion_type.value == "status_code" for a in test_case.assertions)
+
+        for assertion in test_case.assertions:
+            if assertion.assertion_type.value == "status_code":
+                # 只在这里验证状态码，不在基础验证中重复
+                assertion_lines.append(f'        validate_response_status(response, {assertion.expected_value})')
+            elif assertion.assertion_type.value == "json_field":
+                assertion_lines.append(f'        assert "{assertion.expected_value}" in response_data  # {assertion.description}')
+            elif assertion.assertion_type.value == "response_time":
+                assertion_lines.append(f'        validate_response_time(response, {assertion.expected_value})')
+
+        return "\n".join(assertion_lines)
+
+    def _generate_simple_readme_content(self, api_info, scripts: List[GeneratedScript]) -> str:
+        """生成简化的README文档"""
+        script_name = scripts[0].script_name if scripts else "test_api_automation.py"
+        total_tests = sum(len(script.test_case_ids) for script in scripts)
+
+        return f"""# {api_info.title} API 自动化测试
+
+## 项目描述
+{api_info.description}
+
+**API版本**: {api_info.version}
+**基础URL**: {api_info.base_url}
+
+## 测试脚本
+- **{script_name}**: 包含 {total_tests} 个测试用例的完整自动化测试脚本
+
+## 快速开始
+
+### 1. 安装依赖
+```bash
+pip install pytest requests allure-pytest
+```
+
+### 2. 运行测试
+```bash
+# 运行所有测试
+pytest {script_name} -v
+
+# 生成详细报告
+pytest {script_name} -v --tb=short
+
+# 生成Allure报告
+pytest {script_name} --allure-dir=reports
+allure serve reports
+```
+
+### 3. 测试配置
+测试脚本是完全自包含的，所有配置都在脚本内部定义。
+如需修改API基础URL，请编辑脚本中的 `API_BASE_URL` 常量。
+
+## 注意事项
+1. 确保API服务正在运行
+2. 根据实际环境修改脚本中的API_BASE_URL
+3. 如需认证，请在脚本中的api_config fixture中添加认证信息
+
+## 测试特性
+- ✅ 完整的HTTP请求测试
+- ✅ 响应状态码验证
+- ✅ JSON响应结构验证
+- ✅ 响应时间性能验证
+- ✅ 详细的错误信息和日志
+- ✅ 支持Allure测试报告
+"""
+
     async def _save_generated_files(self, output: ScriptGenerationOutput):
-        """保存生成的文件到磁盘"""
+        """保存生成的文件到磁盘（简化版本）"""
         try:
             # 创建项目目录
-            project_dir = self.output_dir / f"api_test_{output.document_id[:8]}"
+            project_dir = self.output_dir / f"api_test_{output.interface_id[:8]}"
             project_dir.mkdir(exist_ok=True)
-            
-            # 保存测试脚本
+
+            # 保存测试脚本（主要文件）
             for script in output.scripts:
                 script_path = project_dir / script.file_path
                 script_path.write_text(script.script_content, encoding='utf-8')
-            
-            # 保存配置文件
-            for filename, content in output.config_files.items():
-                config_path = project_dir / filename
-                config_path.write_text(content, encoding='utf-8')
-            
+                logger.info(f"已保存测试脚本: {script_path}")
+
             # 保存依赖文件
-            requirements_path = project_dir / "requirements.txt"
-            requirements_path.write_text(output.requirements_txt, encoding='utf-8')
-            
+            if output.requirements_txt:
+                requirements_path = project_dir / "requirements.txt"
+                requirements_path.write_text(output.requirements_txt, encoding='utf-8')
+                logger.info(f"已保存依赖文件: {requirements_path}")
+
             # 保存README
-            readme_path = project_dir / "README.md"
-            readme_path.write_text(output.readme_content, encoding='utf-8')
-            
-            logger.info(f"测试项目已保存到: {project_dir}")
-            
+            if output.readme_content:
+                readme_path = project_dir / "README.md"
+                readme_path.write_text(output.readme_content, encoding='utf-8')
+                logger.info(f"已保存README文档: {readme_path}")
+
+            logger.info(f"✅ 单脚本测试项目已保存到: {project_dir}")
+            logger.info(f"📁 生成的文件: {len(output.scripts)} 个脚本文件")
+
         except Exception as e:
             logger.error(f"保存生成文件失败: {str(e)}")
 
@@ -641,7 +901,7 @@ class TestAPI:
             persistence_input = ScriptPersistenceInput(
                 session_id=output.session_id,
                 document_id=output.document_id,
-                interface_id=message.interface_id or output.document_id,  # 使用传入的interface_id
+                interface_id=message.interface_id,
                 scripts=output.scripts,
                 config_files=output.config_files,
                 requirements_txt=output.requirements_txt,

@@ -728,71 +728,92 @@ class ApiDocParserAgent(BaseApiAutomationAgent):
         try:
             from .schemas import AnalysisInput
 
+            # 对于单接口场景，使用第一个端点的ID作为interface_id
+            interface_id = None
+            if output.endpoints:
+                interface_id = output.endpoints[0].endpoint_id
+
             # 构建接口分析输入
             analysis_input = AnalysisInput(
                 session_id=output.session_id,
                 document_id=output.document_id,
+                interface_id=interface_id,  # 传递interface_id
                 api_info=output.api_info,
                 endpoints=output.endpoints,
                 analysis_options={}
             )
-            
+
             # 发送到接口分析智能体
             await self.runtime.publish_message(
                 analysis_input,
                 topic_id=TopicId(type=TopicTypes.API_ANALYZER.value, source=self.agent_name)
             )
-            
-            logger.info(f"已发送解析结果到接口分析智能体: {output.document_id}")
-            
+
+            logger.info(f"已发送解析结果到接口分析智能体: document_id={output.document_id}, interface_id={interface_id}")
+
         except Exception as e:
             logger.error(f"发送到接口分析智能体失败: {str(e)}")
 
     async def _extract_pdf_content(self, file_path: Path) -> str:
-        """提取PDF文档内容"""
+        """提取PDF文档内容 - 使用 Marker 组件实现"""
         try:
             logger.info(f"开始提取PDF内容: {file_path.name}")
 
-            # 方法1: 尝试使用PyPDF2提取文本
+            # 方法1: 优先使用 Marker 组件（推荐）
+            try:
+                from app.services.pdf import get_marker_service
+                marker_service = get_marker_service()
+
+                if marker_service.is_ready:
+                    logger.info("使用 Marker 组件提取 PDF 内容")
+                    return await marker_service.extract_pdf_content(file_path)
+                else:
+                    logger.warning("Marker 服务未就绪，使用备用方法")
+            except Exception as e:
+                logger.warning(f"Marker 提取失败，使用备用方法: {str(e)}")
+
+            # 方法2: 备用方法 - 使用PyPDF2提取文本
             try:
                 import PyPDF2
+                logger.info("使用 PyPDF2 备用方法提取 PDF 内容")
                 return await self._extract_with_pypdf2(file_path)
             except ImportError:
                 logger.debug("PyPDF2未安装，尝试其他方法")
             except Exception as e:
                 logger.warning(f"PyPDF2提取失败: {str(e)}")
 
-            # # 方法2: 尝试使用pdfplumber提取文本
-            # try:
-            #     import pdfplumber
-            #     return await self._extract_with_pdfplumber(file_path)
-            # except ImportError:
-            #     logger.debug("pdfplumber未安装，尝试其他方法")
-            # except Exception as e:
-            #     logger.warning(f"pdfplumber提取失败: {str(e)}")
-            #
-            # # 方法3: 尝试使用pymupdf (fitz)提取文本
-            # try:
-            #     import fitz  # PyMuPDF
-            #     return await self._extract_with_pymupdf(file_path)
-            # except ImportError:
-            #     logger.debug("PyMuPDF未安装，尝试其他方法")
-            # except Exception as e:
-            #     logger.warning(f"PyMuPDF提取失败: {str(e)}")
-            #
-            # # 方法4: 尝试使用pdfminer提取文本
-            # try:
-            #     from pdfminer.high_level import extract_text
-            #     return await self._extract_with_pdfminer(file_path)
-            # except ImportError:
-            #     logger.debug("pdfminer未安装")
-            # except Exception as e:
-            #     logger.warning(f"pdfminer提取失败: {str(e)}")
+            # 方法3: 尝试使用pdfplumber提取文本
+            try:
+                import pdfplumber
+                logger.info("使用 pdfplumber 备用方法提取 PDF 内容")
+                return await self._extract_with_pdfplumber(file_path)
+            except ImportError:
+                logger.debug("pdfplumber未安装，尝试其他方法")
+            except Exception as e:
+                logger.warning(f"pdfplumber提取失败: {str(e)}")
 
-            # 方法5: 借助多模态大模型做ocr识别（推荐）、docling、marker等
+            # 方法4: 尝试使用pymupdf (fitz)提取文本
+            try:
+                import fitz  # PyMuPDF
+                logger.info("使用 PyMuPDF 备用方法提取 PDF 内容")
+                return await self._extract_with_pymupdf(file_path)
+            except ImportError:
+                logger.debug("PyMuPDF未安装，尝试其他方法")
+            except Exception as e:
+                logger.warning(f"PyMuPDF提取失败: {str(e)}")
+
+            # 方法5: 尝试使用pdfminer提取文本
+            try:
+                from pdfminer.high_level import extract_text
+                logger.info("使用 pdfminer 备用方法提取 PDF 内容")
+                return await self._extract_with_pdfminer(file_path)
+            except ImportError:
+                logger.debug("pdfminer未安装")
+            except Exception as e:
+                logger.warning(f"pdfminer提取失败: {str(e)}")
 
             # 如果所有方法都失败，返回错误信息
-            error_msg = f"无法提取PDF内容: {file_path.name}。请安装PDF解析库: pip install PyPDF2 pdfplumber PyMuPDF pdfminer.six"
+            error_msg = f"无法提取PDF内容: {file_path.name}。请安装PDF解析库或检查 Marker 服务状态"
             logger.error(error_msg)
             raise RuntimeError(error_msg)
 

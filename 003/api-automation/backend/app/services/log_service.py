@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
 from loguru import logger
 
-from app.models.api_automation import AgentLog, LogAnalysis, AlertRule, Alert
+from app.models.api_automation import AgentLog, AlertRule, Alert
 from app.core.enums import LogLevel
 
 
@@ -44,8 +44,8 @@ class LogService:
                 agent_type=agent_type,
                 agent_name=agent_name,
                 log_level=log_level,
-                log_message=message,
-                log_data=log_data or {},
+                message=message,  # 修改字段名
+                operation_data=log_data or {},  # 修改字段名
                 request_id=request_id,
                 user_id=user_id,
                 operation=operation,
@@ -163,19 +163,7 @@ class LogService:
             
             # 保存分析结果
             analysis_id = str(uuid.uuid4())
-            analysis = await LogAnalysis.create(
-                analysis_id=analysis_id,
-                session_id=session_id,
-                log_count=total_logs,
-                analysis_start_time=min(log.timestamp for log in logs),
-                analysis_end_time=max(log.timestamp for log in logs),
-                error_rate=error_rate,
-                warning_rate=warning_rate,
-                avg_response_time=avg_response_time,
-                anomalies_detected=len(anomalies),
-                anomaly_details=anomalies
-            )
-            
+
             return {
                 "analysis_id": analysis_id,
                 "total_logs": total_logs,

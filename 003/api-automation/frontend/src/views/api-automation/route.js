@@ -65,9 +65,9 @@ export default {
       },
     },
     {
-      name: '测试管理',
-      path: 'test-management',
-      component: () => import('./test-management/index.vue'),
+      name: '脚本管理',
+      path: 'script-management',
+      component: () => import('@/views/api-automation/script-management/index.vue'),
       meta: {
         title: '测试管理',
         icon: 'mdi:test-tube',
@@ -92,6 +92,26 @@ export default {
         title: '定时任务',
         icon: 'mdi:clock-outline',
         description: '配置和管理定时执行的测试任务',
+      },
+    },
+    {
+      name: '执行报告',
+      path: 'execution-reports',
+      component: () => import('./execution-reports/index.vue'),
+      meta: {
+        title: '执行报告',
+        icon: 'mdi:file-chart',
+        description: '查看和管理脚本执行报告',
+      },
+    },
+    {
+      name: '执行报告详情',
+      path: 'execution-reports/:executionId',
+      component: () => import('./execution-reports/detail.vue'),
+      meta: {
+        title: '执行报告详情',
+        icon: 'mdi:file-chart-outline',
+        hideInMenu: true,
       },
     },
   ],

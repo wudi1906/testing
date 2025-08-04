@@ -156,6 +156,8 @@
               :loading="interfaceLoading"
               :pagination="interfacePagination"
               :row-key="(row) => row.interface_id"
+              :max-height="600"
+              remote
               @update:page="handleInterfacePageChange"
               @update:page-size="handleInterfacePageSizeChange"
             />
@@ -203,6 +205,8 @@
               :loading="documentLoading"
               :pagination="documentPagination"
               :row-key="(row) => row.doc_id"
+              :max-height="600"
+              remote
               @update:page="handleDocumentPageChange"
               @update:page-size="handleDocumentPageSizeChange"
             />
@@ -427,12 +431,102 @@
             <!-- 参数信息 -->
             <div class="detail-section">
               <h3>请求参数</h3>
-              <n-data-table
-                :columns="parameterColumns"
-                :data="selectedInterface.parameters || []"
-                :pagination="false"
-                size="small"
-              />
+              <n-tabs type="line" animated>
+                <n-tab-pane
+                  v-for="(params, location) in groupedParameters"
+                  :key="location"
+                  :name="location"
+                  :tab="getLocationTabTitle(location, params.length)"
+                >
+                  <div class="parameter-group">
+                    <div class="parameter-group-header">
+                      <n-tag :type="getLocationTagType(location)" size="medium">
+                        {{ getLocationDisplayName(location) }}
+                      </n-tag>
+                      <span class="parameter-count">{{ params.length }} 个参数</span>
+                    </div>
+
+                    <!-- 普通参数表格 -->
+                    <div v-if="location !== 'body'">
+                      <n-data-table
+                        :columns="parameterColumns"
+                        :data="params"
+                        :pagination="false"
+                        size="small"
+                      />
+                    </div>
+
+                    <!-- Body参数特殊处理 -->
+                    <div v-else>
+                      <div v-if="params.length === 0" class="empty-state">
+                        <n-empty description="暂无Body参数" />
+                      </div>
+                      <div v-else>
+                        <!-- Body参数结构展示 -->
+                        <div v-for="param in params" :key="param.name" class="body-parameter">
+                          <n-card size="small" :bordered="false" class="body-param-card">
+                            <template #header>
+                              <div class="body-param-header">
+                                <span class="param-name">{{ param.name }}</span>
+                                <n-tag v-if="param.required" type="error" size="small">必需</n-tag>
+                                <n-tag type="info" size="small">{{ param.data_type }}</n-tag>
+                              </div>
+                            </template>
+
+                            <div class="body-param-content">
+                              <div v-if="param.description" class="param-description">
+                                <strong>描述：</strong>{{ param.description }}
+                              </div>
+
+                              <!-- Schema结构展示 -->
+                              <div v-if="param.schema && Object.keys(param.schema).length > 0" class="param-schema">
+                                <strong>结构：</strong>
+                                <n-code
+                                  :code="JSON.stringify(param.schema, null, 2)"
+                                  language="json"
+                                  show-line-numbers
+                                  style="margin-top: 8px;"
+                                />
+                              </div>
+
+                              <!-- 示例展示 -->
+                              <div v-if="param.example" class="param-example">
+                                <strong>示例：</strong>
+                                <n-code
+                                  :code="typeof param.example === 'string' ? param.example : JSON.stringify(param.example, null, 2)"
+                                  :language="typeof param.example === 'string' ? 'text' : 'json'"
+                                  style="margin-top: 8px;"
+                                />
+                              </div>
+
+                              <!-- 约束条件 -->
+                              <div v-if="param.constraints && Object.keys(param.constraints).length > 0" class="param-constraints">
+                                <strong>约束：</strong>
+                                <div class="constraints-list">
+                                  <n-tag
+                                    v-for="(value, key) in param.constraints"
+                                    :key="key"
+                                    size="small"
+                                    type="default"
+                                    style="margin: 2px;"
+                                  >
+                                    {{ key }}: {{ value }}
+                                  </n-tag>
+                                </div>
+                              </div>
+                            </div>
+                          </n-card>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </n-tab-pane>
+
+                <!-- 如果没有参数，显示空状态 -->
+                <n-tab-pane v-if="Object.keys(groupedParameters).length === 0" name="empty" tab="暂无参数">
+                  <n-empty description="该接口暂无请求参数" />
+                </n-tab-pane>
+              </n-tabs>
             </div>
 
             <!-- 响应信息 -->
@@ -453,13 +547,14 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, h } from 'vue'
+import { ref, reactive, computed, onMounted, watch, h } from 'vue'
 import { Icon } from '@iconify/vue'
-import { useMessage, useDialog } from 'naive-ui'
+import { useMessage, useDialog, NButton } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import api from '@/api'
 import { request } from '@/utils'
 import { formatTime, formatFileSize } from '@/utils'
+import SessionLogViewer from '@/components/SessionLogViewer.vue'
 
 const message = useMessage()
 const dialog = useDialog()
@@ -507,7 +602,9 @@ const documentPagination = reactive({
   pageSize: 20,
   itemCount: 0,
   showSizePicker: true,
-  pageSizes: [10, 20, 50, 100]
+  pageSizes: [10, 20, 50, 100],
+  showQuickJumper: true,
+  prefix: ({ itemCount }) => `共 ${itemCount} 条`
 })
 
 // 接口管理
@@ -523,11 +620,15 @@ const interfacePagination = reactive({
   pageSize: 20,
   itemCount: 0,
   showSizePicker: true,
-  pageSizes: [10, 20, 50, 100]
+  pageSizes: [10, 20, 50, 100],
+  showQuickJumper: true,
+  prefix: ({ itemCount }) => `共 ${itemCount} 条`
 })
 
 // 脚本生成状态
 const scriptGenerationLoading = ref(null)
+const currentSessionId = ref('')
+const showSessionLogs = ref(false)
 
 // 选项数据
 const formatOptions = [
@@ -625,26 +726,27 @@ const documentColumns = [
   {
     title: '操作',
     key: 'actions',
-    width: 160,
+    width: 180,
     render(row) {
-      return h('n-space', { size: 'small' }, [
-        h('n-button', {
+      return [
+        h(NButton, {
           size: 'small',
           type: 'primary',
+          style: 'margin-right: 8px;',
           onClick: () => viewDocumentDetail(row)
         }, {
           default: () => '查看',
-          icon: () => h('i', { class: 'iconify', 'data-icon': 'mdi:eye' })
+          icon: () => h(Icon, { icon: 'mdi:eye' })
         }),
-        h('n-button', {
+        h(NButton, {
           size: 'small',
           type: 'error',
           onClick: () => deleteDocument(row)
         }, {
           default: () => '删除',
-          icon: () => h('i', { class: 'iconify', 'data-icon': 'mdi:delete' })
+          icon: () => h(Icon, { icon: 'mdi:delete' })
         })
-      ])
+      ]
     }
   }
 ]
@@ -743,27 +845,37 @@ const interfaceColumns = [
   {
     title: '操作',
     key: 'actions',
-    width: 180,
+    width: 200,
     render(row) {
-      return h('n-space', { size: 'small' }, [
-        h('n-button', {
+      return [
+        h(NButton, {
           size: 'small',
           type: 'primary',
+          style: 'margin-right: 8px;',
           onClick: () => viewInterfaceDetail(row)
         }, {
           default: () => '详情',
-          icon: () => h('i', { class: 'iconify', 'data-icon': 'mdi:eye' })
+          icon: () => h(Icon, { icon: 'mdi:eye' })
         }),
-        h('n-button', {
+        h(NButton, {
           size: 'small',
           type: 'success',
           loading: scriptGenerationLoading.value === row.interface_id,
           onClick: () => generateScript(row)
         }, {
           default: () => '生成脚本',
-          icon: () => h('i', { class: 'iconify', 'data-icon': 'mdi:code-braces' })
+          icon: () => h(Icon, { icon: 'mdi:code-braces' })
+        }),
+        h(NButton, {
+          size: 'small',
+          type: 'info',
+          style: 'margin-left: 8px;',
+          onClick: () => viewInterfaceScripts(row)
+        }, {
+          default: () => '脚本管理',
+          icon: () => h(Icon, { icon: 'mdi:script-text-outline' })
         })
-      ])
+      ]
     }
   }
 ]
@@ -891,6 +1003,69 @@ const getParseStatusText = (status) => {
   return statusTexts[status] || status
 }
 
+// 参数分组相关方法
+const groupedParameters = computed(() => {
+  if (!selectedInterface.value || !selectedInterface.value.parameters) {
+    return {}
+  }
+
+  const groups = {}
+  selectedInterface.value.parameters.forEach(param => {
+    const location = param.location || 'query'
+    if (!groups[location]) {
+      groups[location] = []
+    }
+    groups[location].push(param)
+  })
+
+  // 按照优先级排序
+  const locationOrder = ['path', 'query', 'header', 'body', 'form', 'cookie']
+  const sortedGroups = {}
+  locationOrder.forEach(location => {
+    if (groups[location]) {
+      sortedGroups[location] = groups[location]
+    }
+  })
+
+  // 添加其他未知的location
+  Object.keys(groups).forEach(location => {
+    if (!locationOrder.includes(location)) {
+      sortedGroups[location] = groups[location]
+    }
+  })
+
+  return sortedGroups
+})
+
+const getLocationDisplayName = (location) => {
+  const locationNames = {
+    'query': 'Query 参数',
+    'path': 'Path 参数',
+    'header': 'Header 参数',
+    'body': 'Body 参数',
+    'form': 'Form 参数',
+    'cookie': 'Cookie 参数'
+  }
+  return locationNames[location] || location.toUpperCase() + ' 参数'
+}
+
+const getLocationTagType = (location) => {
+  const locationTypes = {
+    'query': 'success',
+    'path': 'warning',
+    'header': 'info',
+    'body': 'error',
+    'form': 'default',
+    'cookie': 'primary'
+  }
+  return locationTypes[location] || 'default'
+}
+
+const getLocationTabTitle = (location, count) => {
+  const displayName = getLocationDisplayName(location)
+  return `${displayName} (${count})`
+}
+
 // 生命周期和事件处理
 onMounted(() => {
   loadStatistics()
@@ -925,9 +1100,19 @@ const loadDocuments = async () => {
       doc_format: documentSearch.format || undefined
     }
 
+    console.log('加载文档列表参数:', params)
     const response = await api.getApiDocuments(params)
+    console.log('文档列表响应:', response)
+
     documentList.value = response.data
     documentPagination.itemCount = response.total
+
+    console.log('文档分页信息:', {
+      itemCount: documentPagination.itemCount,
+      page: documentPagination.page,
+      pageSize: documentPagination.pageSize,
+      showSizePicker: documentPagination.showSizePicker
+    })
   } catch (error) {
     message.error('加载文档列表失败')
     console.error('加载文档列表失败:', error)
@@ -948,9 +1133,21 @@ const loadInterfaces = async () => {
       doc_id: interfaceSearch.doc_id || undefined
     }
 
+    console.log('加载接口列表参数:', params)
     const response = await api.getApiInterfaces(params)
+    console.log('接口列表响应:', response)
+
     interfaceList.value = response.data
-    interfacePagination.itemCount = response.total
+    interfacePagination.itemCount = response.total || 0
+
+    console.log('接口分页信息:', {
+      itemCount: interfacePagination.itemCount,
+      page: interfacePagination.page,
+      pageSize: interfacePagination.pageSize,
+      showSizePicker: interfacePagination.showSizePicker,
+      total: response.total,
+      dataLength: response.data?.length
+    })
   } catch (error) {
     message.error('加载接口列表失败')
     console.error('加载接口列表失败:', error)
@@ -1469,6 +1666,16 @@ const viewInterfaceDetail = async (interfaceItem) => {
   }
 }
 
+// 跳转到接口脚本管理页面
+const viewInterfaceScripts = (interfaceItem) => {
+  router.push({
+    name: '接口脚本管理',
+    params: {
+      interfaceId: interfaceItem.interface_id
+    }
+  })
+}
+
 // 删除文档
 const deleteDocument = (document) => {
   dialog.warning({
@@ -1495,21 +1702,28 @@ const generateScript = async (interfaceItem) => {
     scriptGenerationLoading.value = interfaceItem.interface_id
 
     const response = await api.generateInterfaceScript(interfaceItem.interface_id)
+    console.log('脚本生成响应:', response)
 
-    if (response.success) {
+    // 检查响应数据结构
+    const responseData = response.data || response
+
+    if (responseData.success) {
       message.success('脚本生成任务已启动')
 
+      // 设置当前会话ID以显示日志
+      currentSessionId.value = responseData.session_id
+
       // 开始轮询状态
-      if (response.session_id) {
-        pollScriptGenerationStatus(response.session_id, interfaceItem.interface_id)
+      if (responseData.session_id) {
+        pollScriptGenerationStatus(responseData.session_id, interfaceItem.interface_id)
       }
     } else {
-      message.error(response.message || '脚本生成失败')
+      message.error(responseData.message || response.msg || '脚本生成失败')
       scriptGenerationLoading.value = null
     }
   } catch (error) {
     console.error('生成脚本失败:', error)
-    message.error('生成脚本失败')
+    message.error('生成脚本失败: ' + (error.message || '未知错误'))
     scriptGenerationLoading.value = null
   }
 }
@@ -1523,17 +1737,29 @@ const pollScriptGenerationStatus = async (sessionId, interfaceId) => {
     try {
       attempts++
       const statusResponse = await api.getScriptGenerationStatus(sessionId)
+      console.log('状态轮询响应:', statusResponse)
 
-      if (statusResponse.success) {
-        const status = statusResponse.status
+      // 检查响应数据结构
+      const responseData = statusResponse.data || statusResponse
+
+      if (responseData.success) {
+        const status = responseData.status
 
         if (status === 'completed') {
           message.success('脚本生成完成！')
           scriptGenerationLoading.value = null
+          // 保持日志显示一段时间后清除
+          setTimeout(() => {
+            currentSessionId.value = ''
+          }, 10000) // 10秒后清除日志显示
           return
         } else if (status === 'failed') {
-          message.error('脚本生成失败：' + (statusResponse.message || '未知错误'))
+          message.error('脚本生成失败：' + (responseData.error_message || responseData.message || statusResponse.msg || '未知错误'))
           scriptGenerationLoading.value = null
+          // 保持日志显示以查看错误信息
+          setTimeout(() => {
+            currentSessionId.value = ''
+          }, 30000) // 30秒后清除日志显示
           return
         } else if (status === 'processing' && attempts < maxAttempts) {
           // 继续轮询
@@ -1796,4 +2022,209 @@ const pollScriptGenerationStatus = async (sessionId, interfaceId) => {
   font-weight: 600;
   color: #333;
 }
+
+/* 参数分组样式 */
+.parameter-group {
+  margin-top: 16px;
+}
+
+.parameter-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 4px solid #2080f0;
+}
+
+.parameter-count {
+  color: #666;
+  font-size: 14px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+/* Body参数特殊样式 */
+.body-parameter {
+  margin-bottom: 16px;
+}
+
+.body-param-card {
+  border: 1px solid #e0e0e6;
+  border-radius: 6px;
+}
+
+.body-param-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.param-name {
+  font-weight: 600;
+  color: #333;
+  font-size: 14px;
+}
+
+.body-param-content {
+  padding: 0;
+}
+
+.param-description,
+.param-schema,
+.param-example,
+.param-constraints {
+  margin-bottom: 12px;
+}
+
+.param-description:last-child,
+.param-schema:last-child,
+.param-example:last-child,
+.param-constraints:last-child {
+  margin-bottom: 0;
+}
+
+.constraints-list {
+  margin-top: 8px;
+}
+
+/* 标签页样式优化 */
+:deep(.n-tabs .n-tab-pane) {
+  padding-top: 16px;
+}
+
+:deep(.n-tabs .n-tabs-tab) {
+  font-weight: 500;
+}
+
+:deep(.n-tabs .n-tabs-tab--active) {
+  font-weight: 600;
+}
+
+/* 表格操作按钮样式优化 */
+:deep(.n-data-table .n-button) {
+  border-radius: 6px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  min-width: 70px;
+  height: 28px;
+  font-size: 12px;
+}
+
+:deep(.n-data-table .n-button:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+:deep(.n-data-table .n-button--primary-type) {
+  background: linear-gradient(135deg, #2080f0 0%, #1c6dd0 100%);
+  border: none;
+  color: white;
+}
+
+:deep(.n-data-table .n-button--success-type) {
+  background: linear-gradient(135deg, #18a058 0%, #16924d 100%);
+  border: none;
+  color: white;
+}
+
+:deep(.n-data-table .n-button--error-type) {
+  background: linear-gradient(135deg, #d03050 0%, #b82a47 100%);
+  border: none;
+  color: white;
+}
+
+:deep(.n-data-table .n-button--primary-type:hover) {
+  background: linear-gradient(135deg, #1c6dd0 0%, #1a5fb8 100%);
+}
+
+:deep(.n-data-table .n-button--success-type:hover) {
+  background: linear-gradient(135deg, #16924d 0%, #148043 100%);
+}
+
+:deep(.n-data-table .n-button--error-type:hover) {
+  background: linear-gradient(135deg, #b82a47 0%, #a0253e 100%);
+}
+
+/* 按钮图标样式 */
+:deep(.n-data-table .n-button .n-button__icon) {
+  margin-right: 4px;
+}
+
+/* 会话日志区域样式 */
+.session-logs-section {
+  margin-top: 24px;
+  padding: 16px;
+  background: var(--card-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+/* 操作列居中对齐 */
+:deep(.n-data-table td[data-col-key="actions"]) {
+  text-align: center;
+}
+
+/* 确保分页插件显示 */
+:deep(.n-data-table .n-data-table__pagination) {
+  display: flex !important;
+  justify-content: flex-end;
+  margin-top: 16px;
+  padding: 16px 0;
+}
+
+/* 分页插件样式优化 - 强制显示 */
+:deep(.n-pagination) {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  visibility: visible !important;
+  opacity: 1 !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+/* 强制显示数据表格的分页区域 */
+:deep(.n-data-table .n-data-table__pagination) {
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  height: auto !important;
+  margin-top: 16px !important;
+  padding: 16px 0 !important;
+}
+
+/* 接口管理标签页特殊样式 */
+.tab-content {
+  min-height: 500px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 确保数据表格容器有足够的空间显示分页 */
+:deep(.n-data-table) {
+  display: flex;
+  flex-direction: column;
+}
+
+:deep(.n-data-table .n-data-table-wrapper) {
+  flex: 1;
+  overflow: auto;
+}
+
+/* 分页组件样式优化 */
+:deep(.n-data-table .n-data-table__pagination) {
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding: 16px 0;
+  border-top: 1px solid #f0f0f0;
+  background: #fafafa;
+}
+
+
 </style>

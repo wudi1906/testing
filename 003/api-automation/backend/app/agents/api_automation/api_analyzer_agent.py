@@ -153,24 +153,62 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
         self.analysis_metrics["total_analyses"] += 1
 
         try:
-            logger.info(f"开始分析API依赖关系: {message.document_id}, 端点数量: {len(message.endpoints)}")
+            logger.info(f"开始分析API依赖关系: document_id={message.document_id}, interface_id={getattr(message, 'interface_id', None)}, 端点数量: {len(message.endpoints)}")
+
+            # 记录开始分析的日志
+            await self._log_operation_start(
+                message.session_id,
+                "dependency_analysis",
+                {
+                    "document_id": message.document_id,
+                    "interface_id": getattr(message, 'interface_id', None),
+                    "endpoints_count": len(message.endpoints)
+                }
+            )
 
             # 1. 构建专业提示词并执行 RAG 搜索
-            rag_context = await self._perform_rag_search_for_api_analysis(message)
+            # rag_context = await self._perform_rag_search_for_api_analysis(message)
+            rag_context = dict()
+
+            await self._log_operation_progress(
+                message.session_id,
+                "dependency_analysis",
+                "智能分析API依赖关系"
+            )
 
             # 2. 使用大模型智能分析依赖关系（结合 RAG 上下文）
             analysis_result = await self._intelligent_analyze_dependencies(
                 message.api_info, message.endpoints, rag_context
             )
             
+            await self._log_operation_progress(
+                message.session_id,
+                "dependency_analysis",
+                "构建依赖对象"
+            )
+
             # 3. 构建依赖关系对象 - 修复数据路径
             dependencies = self._build_dependency_objects_from_analysis(
                 analysis_result, message.endpoints
             )
 
+            await self._log_operation_progress(
+                message.session_id,
+                "dependency_analysis",
+                "创建执行组",
+                {"dependencies_count": len(dependencies)}
+            )
+
             # 4. 创建执行组 - 使用分析结果中的执行顺序
             execution_groups = self._create_execution_groups_from_analysis(
                 analysis_result, dependencies, message.endpoints
+            )
+
+            await self._log_operation_progress(
+                message.session_id,
+                "dependency_analysis",
+                "风险评估",
+                {"execution_groups_count": len(execution_groups)}
             )
 
             # 5. 进行风险评估
@@ -185,6 +223,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
             output = AnalysisOutput(
                 session_id=message.session_id,
                 document_id=message.document_id,
+                interface_id=getattr(message, 'interface_id', None),  # 传递interface_id
                 dependencies=dependencies,
                 execution_groups=execution_groups,
                 test_strategy=test_strategy,
@@ -202,8 +241,20 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
             self.analysis_metrics["total_execution_groups_created"] += len(execution_groups)
             self._update_metrics("dependency_analysis", True, output.processing_time)
 
+            await self._log_operation_complete(
+                message.session_id,
+                "dependency_analysis",
+                {
+                    "dependencies_count": len(dependencies),
+                    "execution_groups_count": len(execution_groups),
+                    "processing_time": output.processing_time
+                }
+            )
+
+            # 9. 发送结果到测试用例生成智能体
+            await self._send_to_test_case_generator(output, message)
             # 9. 发送结果到脚本生成智能体（跳过测试用例生成步骤）
-            await self._send_to_script_generator(output, message, ctx)
+            # await self._send_to_script_generator(output, message)
 
             logger.info(f"依赖分析完成: {message.document_id}, 识别依赖: {len(dependencies)}, 执行组: {len(execution_groups)}")
 
@@ -211,6 +262,13 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
             self.analysis_metrics["failed_analyses"] += 1
             self._update_metrics("dependency_analysis", False)
             error_info = self._handle_common_error(e, "dependency_analysis")
+
+            await self._log_operation_error(
+                message.session_id,
+                "dependency_analysis",
+                e
+            )
+
             logger.error(f"依赖分析失败: {error_info}")
 
     async def _intelligent_analyze_dependencies(
@@ -236,7 +294,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
             )
             
             # 使用AssistantAgent进行智能分析
-            result_content = await self._run_assistant_agent(task_prompt)
+            result_content = await self._run_assistant_agent(task_prompt, stream=False)
             
             if result_content:
                 # 提取JSON结果
@@ -667,7 +725,6 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
         self, 
         output: AnalysisOutput, 
         original_input: AnalysisInput,
-        ctx: MessageContext
     ):
         """发送分析结果到测试用例生成智能体"""
         try:
@@ -677,6 +734,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
             test_case_input = TestCaseGenerationInput(
                 session_id=output.session_id,
                 document_id=output.document_id,
+                interface_id=output.interface_id,  # 传递interface_id
                 api_info=original_input.api_info,
                 endpoints=original_input.endpoints,
                 dependencies=output.dependencies,
@@ -690,7 +748,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
                 topic_id=TopicId(type=TopicTypes.API_TEST_CASE_GENERATOR.value, source=self.agent_name)
             )
             
-            logger.info(f"已发送分析结果到测试用例生成智能体: {output.document_id}")
+            logger.info(f"已发送分析结果到测试用例生成智能体: document_id={output.document_id}, interface_id={output.interface_id}")
             
         except Exception as e:
             logger.error(f"发送到测试用例生成智能体失败: {str(e)}")
@@ -699,7 +757,6 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
         self,
         output: AnalysisOutput,
         original_input: AnalysisInput,
-        ctx: MessageContext
     ):
         """发送分析结果到脚本生成智能体（跳过测试用例生成步骤）"""
         try:
@@ -725,8 +782,8 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
                 test_cases.append(test_case)
 
             # 构建脚本生成输入
-            # 获取第一个端点的ID作为interface_id（单接口场景）
-            interface_id = original_input.endpoints[0].endpoint_id if original_input.endpoints else None
+            # 优先使用传递的interface_id，如果没有则使用第一个端点的ID
+            interface_id = output.interface_id or (original_input.endpoints[0].endpoint_id if original_input.endpoints else None)
 
             script_input = ScriptGenerationInput(
                 session_id=output.session_id,
@@ -735,6 +792,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
                 api_info=original_input.api_info,
                 endpoints=original_input.endpoints,
                 test_cases=test_cases,
+                dependencies=output.dependencies,  # 传递依赖关系
                 execution_groups=output.execution_groups,
                 generation_options={}
             )
@@ -745,7 +803,7 @@ class ApiAnalyzerAgent(BaseApiAutomationAgent):
                 topic_id=TopicId(type=TopicTypes.TEST_SCRIPT_GENERATOR.value, source=self.agent_name)
             )
 
-            logger.info(f"已发送分析结果到脚本生成智能体: {output.document_id}")
+            logger.info(f"已发送分析结果到脚本生成智能体: document_id={output.document_id}, interface_id={interface_id}")
 
         except Exception as e:
             logger.error(f"发送到脚本生成智能体失败: {str(e)}")
@@ -1509,3 +1567,5 @@ API接口智能分析查询：
         keywords.extend([word for word in api_words if len(word) > 2])
 
         return list(set(keywords))  # 去重
+
+

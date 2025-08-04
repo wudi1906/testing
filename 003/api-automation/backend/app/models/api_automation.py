@@ -168,15 +168,98 @@ class TestExecution(Model):
     start_time = fields.DatetimeField(null=True, description="开始时间")
     end_time = fields.DatetimeField(null=True, description="结束时间")
     execution_time = fields.FloatField(default=0.0, description="总执行时间")
+
+    # 执行结果统计
+    total_tests = fields.IntField(default=0, description="总测试数")
+    passed_tests = fields.IntField(default=0, description="通过测试数")
+    failed_tests = fields.IntField(default=0, description="失败测试数")
+    skipped_tests = fields.IntField(default=0, description="跳过测试数")
+    error_tests = fields.IntField(default=0, description="错误测试数")
+    success_rate = fields.FloatField(default=0.0, description="成功率")
+
+    # 性能统计
+    avg_response_time = fields.FloatField(default=0.0, description="平均响应时间(ms)")
+    max_response_time = fields.FloatField(default=0.0, description="最大响应时间(ms)")
+    min_response_time = fields.FloatField(default=0.0, description="最小响应时间(ms)")
+
+    # 报告和日志
     summary = fields.JSONField(default=dict, description="执行摘要")
     report_files = fields.JSONField(default=list, description="报告文件路径")
     log_files = fields.JSONField(default=list, description="日志文件路径")
+    error_details = fields.JSONField(default=list, description="错误详情")
+
+    # 执行描述
+    description = fields.TextField(default="", description="执行描述")
+
     created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
     updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
 
     class Meta:
         table = "test_executions"
         table_description = "测试执行记录表"
+        indexes = [
+            ("execution_id",),
+            ("session_id",),
+            ("status", "created_at"),
+            ("environment", "status"),
+            ("document_id", "status")
+        ]
+
+
+class ScriptExecutionResult(Model):
+    """脚本执行结果详情模型"""
+    id = fields.IntField(pk=True)
+    result_id = fields.CharField(max_length=100, unique=True, description="结果ID")
+    execution = fields.ForeignKeyField("models.TestExecution", related_name="script_results", description="关联执行记录")
+    script = fields.ForeignKeyField("models.TestScript", related_name="execution_results", description="关联脚本")
+
+    # 执行信息
+    script_name = fields.CharField(max_length=200, description="脚本名称")
+    script_path = fields.CharField(max_length=500, description="脚本路径")
+    start_time = fields.DatetimeField(description="开始时间")
+    end_time = fields.DatetimeField(null=True, description="结束时间")
+    duration = fields.FloatField(default=0.0, description="执行时长(秒)")
+
+    # 执行状态
+    status = fields.CharField(max_length=20, default="PENDING", description="执行状态")
+    exit_code = fields.IntField(default=0, description="退出码")
+
+    # 测试结果统计
+    total_tests = fields.IntField(default=0, description="总测试数")
+    passed_tests = fields.IntField(default=0, description="通过测试数")
+    failed_tests = fields.IntField(default=0, description="失败测试数")
+    skipped_tests = fields.IntField(default=0, description="跳过测试数")
+    error_tests = fields.IntField(default=0, description="错误测试数")
+
+    # 输出信息
+    stdout = fields.TextField(default="", description="标准输出")
+    stderr = fields.TextField(default="", description="标准错误")
+
+    # 测试详情
+    test_details = fields.JSONField(default=list, description="测试详情")
+    assertions = fields.JSONField(default=list, description="断言结果")
+
+    # 性能数据
+    response_time = fields.FloatField(default=0.0, description="响应时间(ms)")
+    request_data = fields.JSONField(default=dict, description="请求数据")
+    response_data = fields.JSONField(default=dict, description="响应数据")
+    response_status_code = fields.IntField(null=True, description="响应状态码")
+
+    # 错误信息
+    error_message = fields.TextField(default="", description="错误信息")
+    failure_reason = fields.TextField(default="", description="失败原因")
+
+    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
+    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+
+    class Meta:
+        table = "script_execution_results"
+        table_description = "脚本执行结果详情表"
+        indexes = [
+            ("execution_id", "status"),
+            ("script_id", "status"),
+            ("status", "created_at")
+        ]
 
 
 class TestResult(Model):
@@ -235,8 +318,8 @@ class AgentLog(Model):
 
     # 日志内容
     log_level = fields.CharField(max_length=20, description="日志级别", index=True)  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-    log_message = fields.TextField(description="日志消息")
-    log_data = fields.JSONField(default=dict, description="详细日志数据")
+    message = fields.TextField(description="日志消息")  # 修改字段名以匹配数据库
+    operation_data = fields.JSONField(default=dict, description="详细日志数据")  # 修改字段名以匹配数据库
 
     # 上下文信息
     request_id = fields.CharField(max_length=100, null=True, description="请求ID", index=True)
@@ -316,26 +399,25 @@ class LogAnalysis(Model):
         table_description = "日志分析结果表"
 
 
-class TestScript(Model):
-    """测试脚本模型"""
-    id = fields.IntField(pk=True)
-    script_id = fields.CharField(max_length=100, unique=True, description="脚本ID")
+class TestScript(BaseModel, TimestampMixin):
+    """测试脚本模型 - 优化版：直接关联接口"""
+    script_id = fields.CharField(max_length=100, unique=True, description="脚本ID", index=True)
 
     # 基本信息
     name = fields.CharField(max_length=200, description="脚本名称")
     description = fields.TextField(default="", description="脚本描述")
     file_name = fields.CharField(max_length=255, description="脚本文件名")
 
-    # 关联信息
-    test_case = fields.ForeignKeyField("models.TestCase", related_name="scripts", description="关联测试用例")
-    document = fields.ForeignKeyField("models.ApiDocument", related_name="scripts", description="关联文档")
+    # 关联信息 - 优化：直接关联接口而不是测试用例
+    interface = fields.ForeignKeyField("models.ApiInterface", related_name="scripts", description="关联接口", index=True)
+    document = fields.ForeignKeyField("models.ApiDocument", related_name="scripts", description="关联文档", index=True)
 
     # 脚本内容
     content = fields.TextField(description="脚本源代码")
     file_path = fields.CharField(max_length=500, null=True, description="文件路径")
 
     # 技术信息
-    framework = fields.CharField(max_length=50, description="测试框架")  # pytest, unittest, etc.
+    framework = fields.CharField(max_length=50, description="测试框架", index=True)  # pytest, unittest, etc.
     language = fields.CharField(max_length=20, default="python", description="编程语言")
     version = fields.CharField(max_length=20, default="1.0", description="脚本版本")
 
@@ -349,7 +431,7 @@ class TestScript(Model):
     parallel_execution = fields.BooleanField(default=False, description="是否支持并行执行")
 
     # 状态信息
-    status = fields.CharField(max_length=20, default="ACTIVE", description="状态")  # ACTIVE, INACTIVE, DEPRECATED
+    status = fields.CharField(max_length=20, default="ACTIVE", description="状态", index=True)  # ACTIVE, INACTIVE, DEPRECATED
     is_executable = fields.BooleanField(default=True, description="是否可执行")
 
     # 统计信息
@@ -359,12 +441,25 @@ class TestScript(Model):
 
     # 创建信息
     generated_by = fields.CharField(max_length=50, null=True, description="生成方式")  # AI, MANUAL
-    created_at = fields.DatetimeField(auto_now_add=True, description="创建时间")
-    updated_at = fields.DatetimeField(auto_now=True, description="更新时间")
+    generation_session_id = fields.CharField(max_length=100, null=True, description="生成会话ID", index=True)
+
+    # 质量评估
+    code_quality_score = fields.CharField(max_length=5, default="A", description="代码质量评分")  # A, B, C, D, F
+    test_coverage_score = fields.FloatField(default=0.0, description="测试覆盖率评分")
+    complexity_score = fields.FloatField(default=0.0, description="复杂度评分")
+
+    # 状态管理
+    is_active = fields.BooleanField(default=True, description="是否激活")
 
     class Meta:
         table = "test_scripts"
-        table_description = "测试脚本表"
+        table_description = "测试脚本表 - 优化版"
+        indexes = [
+            ("interface_id", "framework"),
+            ("document_id", "status"),
+            ("generation_session_id", "created_at"),
+            ("is_active", "status")
+        ]
 
 
 class AlertRule(Model):
@@ -488,6 +583,37 @@ class ApiAnalysisResult(BaseModel, TimestampMixin):
             ("document_id", "analysis_type"),
             ("session_id", "status"),
             ("overall_score", "created_at")
+        ]
+
+
+class ScriptGenerationTask(BaseModel, TimestampMixin):
+    """脚本生成任务模型"""
+    task_id = fields.CharField(max_length=100, unique=True, description="任务ID", index=True)
+    session_id = fields.CharField(max_length=100, description="会话ID", index=True)
+    interface_id = fields.CharField(max_length=100, description="接口ID", index=True)
+
+    # 任务状态
+    status = fields.CharEnumField(SessionStatus, default=SessionStatus.CREATED, description="任务状态")
+    progress = fields.FloatField(default=0.0, description="进度百分比")
+    current_step = fields.CharField(max_length=100, default="", description="当前步骤")
+
+    # 处理信息
+    start_time = fields.DatetimeField(null=True, description="开始时间")
+    end_time = fields.DatetimeField(null=True, description="结束时间")
+    processing_time = fields.FloatField(default=0.0, description="处理时间(秒)")
+    error_message = fields.TextField(default="", description="错误信息")
+
+    # 结果信息
+    generated_files_count = fields.IntField(default=0, description="生成文件数")
+    result_data = fields.JSONField(default=dict, description="结果数据")
+
+    class Meta:
+        table = "script_generation_tasks"
+        table_description = "脚本生成任务表"
+        indexes = [
+            ("interface_id", "status"),
+            ("session_id", "status"),
+            ("status", "created_at")
         ]
 
 
@@ -798,6 +924,10 @@ class ApiInterface(BaseModel, TimestampMixin):
     is_deprecated = fields.BooleanField(default=False, description="是否已废弃")
     confidence_score = fields.FloatField(default=0.0, description="解析置信度")
     complexity_score = fields.FloatField(default=0.0, description="复杂度评分")
+
+    # 测试统计
+    test_script_count = fields.IntField(default=0, description="测试脚本数量")
+    last_script_generation_time = fields.DatetimeField(null=True, description="最后脚本生成时间")
 
     # 扩展信息
     extended_info = fields.JSONField(default=dict, description="扩展信息")

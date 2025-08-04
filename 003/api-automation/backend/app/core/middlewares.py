@@ -126,12 +126,32 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
             try:
                 return json.loads(v)
             except (ValueError, TypeError):
-                pass
+                # 如果解析失败，对于空字符串返回None，否则返回原值
+                if isinstance(v, (str, bytes)) and len(v.strip() if isinstance(v, str) else v) == 0:
+                    return None
+                return v
         return v
 
     async def _async_iter(self, items: list[bytes]) -> AsyncGenerator[bytes, None]:
         for item in items:
             yield item
+
+    def _ensure_valid_json(self, value: Any) -> Any:
+        """
+        确保值是有效的JSON值，用于JSONField
+        """
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            return value
+        if isinstance(value, str):
+            if value.strip() == "":
+                return None
+            try:
+                return json.loads(value)
+            except (ValueError, TypeError):
+                return None
+        return value
 
     async def get_request_log(self, request: Request, response: Response) -> dict:
         """
@@ -176,12 +196,22 @@ class HttpAuditLogMiddleware(BaseHTTPMiddleware):
             for path in self.exclude_paths:
                 if re.search(path, request.url.path, re.I) is not None:
                     return
-            data: dict = await self.get_request_log(request=request, response=response)
-            data["response_time"] = process_time
 
-            data["request_args"] = request.state.request_args
-            data["response_body"] = await self.get_response_body(request, response)
-            await AuditLog.create(**data)
+            try:
+                data: dict = await self.get_request_log(request=request, response=response)
+                data["response_time"] = process_time
+
+                # 确保 request_args 存在，如果不存在则设置为空字典
+                request_args = getattr(request.state, 'request_args', {})
+                data["request_args"] = self._ensure_valid_json(request_args)
+
+                response_body = await self.get_response_body(request, response)
+                data["response_body"] = self._ensure_valid_json(response_body)
+
+                await AuditLog.create(**data)
+            except Exception as e:
+                # 记录审计日志失败，但不影响正常请求处理
+                logger.error(f"Failed to create audit log: {str(e)}")
 
         return response
 
