@@ -1,0 +1,19 @@
+# 测试用例生成平台 - 简化依赖
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+sqlalchemy
+aiomysql
+alembic
+autogen-core==0.6.4
+autogen-agentchat==0.6.4
+sse-starlette
+openpyxl
+python-multipart
+PyMuPDF
+Pillow
+python-docx
+loguru
+structlog
+python-dotenv
