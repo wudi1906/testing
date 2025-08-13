@@ -1,0 +1,19 @@
+﻿# Node
+**/node_modules/
+dist/
+build/
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/.venv/
+**/venv*/
+
+# 运行产物
+**/logs/
+**/uploads/
+**/*.db
+
+# Secrets
+.env
+**/.env
