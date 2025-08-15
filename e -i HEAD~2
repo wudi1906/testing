@@ -1,0 +1,3 @@
+[33m449b707[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m fix: 移除文档中的真实API密钥，替换为占位符
+[33m843a093[m feat: 完整的UI自动化系统优化和API密钥安全配置
+[33mfa752fe[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m chore: sync lockfile & requirements_simple.txt
