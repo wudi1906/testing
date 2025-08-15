@@ -132,7 +132,8 @@ export const createUnifiedExecutionSSE = (
   onOpen?: (event: Event) => void,
   onClose?: (event: Event) => void
 ): EventSource => {
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+  // 使用与 axios 相同的基址（相对路径经由 Vite 代理到 8002），避免硬编码 8000 导致连接失败
+  const API_BASE_URL = import.meta.env.VITE_API_URL || '';
   const eventSource = new EventSource(`${API_BASE_URL}/api/v1/web/execution/stream/${sessionId}`);
 
   if (onOpen) {

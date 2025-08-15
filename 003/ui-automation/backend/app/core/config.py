@@ -107,12 +107,18 @@ class AIModelSettings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
-    # Qwen-VL配置
+    # Qwen-VL配置 (阿里通义千问视觉版)
+    QWEN_API_KEY: str = ""  # 兼容性配置
     QWEN_VL_API_KEY: str = ""
     QWEN_VL_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    QWEN_VL_MODEL: str = "qwen-vl-max-latest"
+    QWEN_VL_MODEL: str = "qwen-vl-plus"  # 更新为推荐模型
 
-    # UI-TARS配置
+    # 智谱AI GLM-4V配置
+    GLM_API_KEY: str = ""
+    GLM_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
+    GLM_MODEL: str = "glm-4v"
+
+    # UI-TARS配置 (豆包UI自动化专用)
     UI_TARS_API_KEY: str = ""
     UI_TARS_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
     UI_TARS_MODEL: str = "doubao-1-5-ui-tars-250428"
@@ -121,6 +127,35 @@ class AIModelSettings(BaseSettings):
     # OpenAI配置（备用）
     OPENAI_API_KEY: Optional[str] = None
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+    OPENAI_MODEL: str = "gpt-4o"
+
+    # Gemini 配置（预留）
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+
+    # 自动选择最佳可用API密钥
+    @property
+    def get_best_available_api(self) -> Dict[str, str]:
+        """返回最佳可用的API配置"""
+        apis = [
+            ("qwen", self.QWEN_VL_API_KEY or self.QWEN_API_KEY, self.QWEN_VL_BASE_URL, self.QWEN_VL_MODEL),
+            ("glm", self.GLM_API_KEY, self.GLM_BASE_URL, self.GLM_MODEL),
+            ("uitars", self.UI_TARS_API_KEY, self.UI_TARS_BASE_URL, self.UI_TARS_MODEL),
+            ("deepseek", self.DEEPSEEK_API_KEY, self.DEEPSEEK_BASE_URL, self.DEEPSEEK_MODEL),
+            ("openai", self.OPENAI_API_KEY, self.OPENAI_BASE_URL, self.OPENAI_MODEL),
+        ]
+        
+        for name, key, base_url, model in apis:
+            if key and key.strip():
+                return {
+                    "provider": name,
+                    "api_key": key,
+                    "base_url": base_url,
+                    "model": model
+                }
+        
+        return {"provider": "none", "api_key": "", "base_url": "", "model": ""}
 
     # 多模态模型优先级配置
     @property
@@ -170,7 +205,7 @@ class AutomationSettings(BaseSettings):
     # MidScene.js配置
     MIDSCENE_SERVICE_URL: str = "http://localhost:3002"
     MIDSCENE_TIMEOUT: int = 300  # 5分钟
-    MIDSCENE_SCRIPT_PATH: str = r"C:\Users\86134\Desktop\workspace\playwright-workspace"
+    MIDSCENE_SCRIPT_PATH: str = r"E:\Program Files\cursorproject\testing\003\ui-automation\examples\midscene-playwright"
 
     # Playwright配置
     PLAYWRIGHT_HEADLESS: bool = True
@@ -227,6 +262,8 @@ class Settings(
     class Config:
         env_file = ".env"
         case_sensitive = True
+        # 允许忽略未在模型中声明的额外环境变量，避免用户自定义变量导致启动失败
+        extra = "ignore"
 
 
 @lru_cache()

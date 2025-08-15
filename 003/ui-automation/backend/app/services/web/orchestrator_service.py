@@ -57,6 +57,7 @@ class WebAgentOrchestrator:
             # 创建并启动运行时
             self.runtime = SingleThreadedAgentRuntime()
             self.runtime.start()
+            logger.info(f"🔧 Runtime started: id={id(self.runtime)}")
 
             # 如果未提供则初始化响应收集器
             if self.response_collector is None:
@@ -68,12 +69,14 @@ class WebAgentOrchestrator:
                 collector=self.response_collector,
                 enable_user_feedback=False
             )
+            logger.info("🔌 Web agents registered")
 
             # 注册流式响应收集器
             await self.agent_factory.register_stream_collector(
                 runtime=self.runtime,
                 collector=self.response_collector
             )
+            logger.info("📡 Stream collector registered")
 
             # 记录会话信息
             self.active_sessions[session_id] = {
@@ -313,6 +316,7 @@ class WebAgentOrchestrator:
         """
         try:
             logger.info(f"开始文本到脚本生成工作流: {session_id}")
+            logger.info(f"文本长度: {len(test_description)} | 生成格式: {generate_formats}")
 
             if generate_formats is None:
                 generate_formats = ["yaml"]
@@ -349,6 +353,7 @@ class WebAgentOrchestrator:
                 test_description,
                 additional_context
             )
+            logger.info("📦 已路由到脚本生成器，等待生成结果入库")
 
             logger.info(f"文本到脚本生成工作流完成: {session_id}")
 

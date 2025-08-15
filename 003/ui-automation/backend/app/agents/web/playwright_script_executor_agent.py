@@ -21,6 +21,8 @@ from app.core.messages.web import PlaywrightExecutionRequest
 from app.core.agents.base import BaseAgent
 from app.core.types import TopicTypes, AgentTypes, AGENT_NAMES
 from app.services.test_report_service import test_report_service
+from app.core.config import settings
+from .playwright_script_executor_agent_enhancement import PlaywrightExecutorEnhancement
 
 
 @type_subscription(topic_type=TopicTypes.PLAYWRIGHT_EXECUTOR.value)
@@ -36,8 +38,11 @@ class PlaywrightExecutorAgent(BaseAgent):
             **kwargs
         )
         self.execution_records: Dict[str, Dict[str, Any]] = {}
-        # 固定的执行环境路径
-        self.playwright_workspace = Path(r"C:\Users\86134\Desktop\workspace\playwright-workspace")
+        # 解析并统一确定 Playwright 工作空间（环境变量/配置/示例目录/最终兜底）
+        self.playwright_workspace = self._resolve_playwright_workspace()
+        
+        # 初始化增强执行器
+        self.enhancer = PlaywrightExecutorEnhancement(self)
 
         logger.info(f"Playwright执行智能体初始化完成: {self.agent_name}")
         logger.info(f"执行环境路径: {self.playwright_workspace}")
@@ -92,6 +97,50 @@ class PlaywrightExecutorAgent(BaseAgent):
         except Exception as e:
             logger.error(f"获取脚本文件路径失败: {str(e)}")
             raise
+
+    def _resolve_playwright_workspace(self) -> Path:
+        """解析 Playwright 工作空间路径。
+
+        优先级：
+        1) 环境变量 PLAYWRIGHT_WORKSPACE
+        2) 配置 settings.MIDSCENE_SCRIPT_PATH
+        3) 项目内示例目录 examples/midscene-playwright
+        4) 兜底到历史固定路径 C:\\Users\\86134\\Desktop\\workspace\\playwright-workspace
+        """
+        try:
+            # 1) 环境变量
+            env_path = os.getenv("PLAYWRIGHT_WORKSPACE", "").strip()
+            if env_path:
+                p = Path(env_path)
+                if p.exists():
+                    return p
+
+            # 2) 配置
+            if getattr(settings, "MIDSCENE_SCRIPT_PATH", None):
+                cfg = Path(settings.MIDSCENE_SCRIPT_PATH)
+                if cfg.exists():
+                    return cfg
+
+            # 3) 项目内示例目录（相对定位到 ui-automation/examples/midscene-playwright）
+            try:
+                current = Path(__file__).resolve()
+                ui_root = None
+                for ancestor in current.parents:
+                    if ancestor.name == "ui-automation":
+                        ui_root = ancestor
+                        break
+                if ui_root is not None:
+                    example = ui_root / "examples" / "midscene-playwright"
+                    if example.exists():
+                        return example
+            except Exception:
+                pass
+
+            # 4) 兜底路径
+            return Path(r"C:\\Users\\86134\\Desktop\\workspace\\playwright-workspace")
+        except Exception as e:
+            logger.warning(f"解析Playwright工作空间失败，使用兜底路径: {e}")
+            return Path(r"C:\\Users\\86134\\Desktop\\workspace\\playwright-workspace")
 
     @message_handler
     async def handle_execution_request(self, message: PlaywrightExecutionRequest, ctx: MessageContext) -> None:
@@ -327,61 +376,68 @@ test("AI自动化测试", async ({{
             logger.info(f"执行命令: {' '.join(command)}")
             logger.info(f"工作目录: {self.playwright_workspace}")
 
-            # 在Windows上使用同步subprocess避免NotImplementedError
-            import platform
-            if platform.system() == "Windows":
-                # Windows系统使用同步subprocess，需要shell=True来执行npx
-                try:
-                    # 在Windows上将命令转换为字符串并使用shell=True
-                    command_str = ' '.join(command)
-                    logger.info(f"Windows执行命令: {command_str}")
+            # 使用增强执行器进行实时流式执行
+            try:
+                result = await self.enhancer.execute_with_enhanced_logging(command, execution_id, env)
+                return_code = result["return_code"]
+                stdout_lines = result["stdout"].splitlines() if result["stdout"] else []
+                stderr_lines = result["stderr"].splitlines() if result["stderr"] else []
+                
+            except Exception as e:
+                logger.error(f"增强执行器执行失败，回退到原方法: {e}")
+                # 回退到原有的执行方式
+                import platform
+                if platform.system() == "Windows":
+                    try:
+                        command_str = ' '.join(command)
+                        logger.info(f"Windows执行命令: {command_str}")
 
-                    # 设置UTF-8编码环境变量，避免Windows编码问题
-                    env_with_utf8 = env.copy()
-                    env_with_utf8['PYTHONIOENCODING'] = 'utf-8'
-                    env_with_utf8['CHCP'] = '65001'  # 设置代码页为UTF-8
+                        env_with_utf8 = env.copy()
+                        env_with_utf8['PYTHONIOENCODING'] = 'utf-8'
+                        env_with_utf8['CHCP'] = '65001'
 
-                    result = subprocess.run(
-                        command_str,
-                        cwd=self.playwright_workspace,
-                        capture_output=True,
-                        text=True,
-                        env=env_with_utf8,
-                        timeout=300,  # 5分钟超时
-                        shell=True,  # Windows上需要shell=True来执行npx
-                        encoding='utf-8',  # 明确指定UTF-8编码
-                        errors='replace'  # 遇到编码错误时替换为占位符
-                    )
+                        # 在线程中执行以避免阻塞
+                        result = await asyncio.to_thread(
+                            subprocess.run,
+                            command_str,
+                            cwd=self.playwright_workspace,
+                            capture_output=True,
+                            text=True,
+                            env=env_with_utf8,
+                            timeout=300,
+                            shell=True,
+                            encoding='utf-8',
+                            errors='replace'
+                        )
 
-                    return_code = result.returncode
-                    stdout_lines = result.stdout.splitlines() if result.stdout else []
-                    stderr_lines = result.stderr.splitlines() if result.stderr else []
+                        return_code = result.returncode
+                        stdout_lines = result.stdout.splitlines() if result.stdout else []
+                        stderr_lines = result.stderr.splitlines() if result.stderr else []
 
-                    # 记录和发送输出信息
-                    for line in stdout_lines:
-                        if line.strip():
-                            record["logs"].append(f"[STDOUT] {line}")
-                            await self.send_response(f"📝 {line}")
-                            logger.info(f"[Playwright] {line}")
+                        for line in stdout_lines:
+                            if line.strip():
+                                record["logs"].append(f"[STDOUT] {line}")
+                                await self.send_response(f"📝 {line}")
+                                logger.info(f"[Playwright] {line}")
 
-                    for line in stderr_lines:
-                        if line.strip():
-                            record["logs"].append(f"[STDERR] {line}")
-                            await self.send_response(f"⚠️ {line}")
-                            logger.warning(f"[Playwright Error] {line}")
+                        for line in stderr_lines:
+                            if line.strip():
+                                record["logs"].append(f"[STDERR] {line}")
+                                await self.send_response(f"⚠️ {line}")
+                                logger.warning(f"[Playwright Error] {line}")
 
                 except subprocess.TimeoutExpired:
                     logger.error("Playwright测试执行超时")
                     raise Exception("测试执行超时（5分钟）")
                 except UnicodeDecodeError as e:
                     logger.warning(f"编码错误，尝试使用字节模式: {str(e)}")
-                    # 如果UTF-8编码失败，使用字节模式重新执行
                     try:
-                        result = subprocess.run(
+                        result = await asyncio.to_thread(
+                            subprocess.run,
                             command_str,
                             cwd=self.playwright_workspace,
                             capture_output=True,
-                            text=False,  # 使用字节模式
+                            text=False,
                             env=env_with_utf8,
                             timeout=300,
                             shell=True
@@ -389,7 +445,6 @@ test("AI自动化测试", async ({{
 
                         return_code = result.returncode
 
-                        # 手动处理编码，优先尝试UTF-8，失败则使用GBK
                         def safe_decode(byte_data):
                             if not byte_data:
                                 return []

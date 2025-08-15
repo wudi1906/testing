@@ -41,8 +41,9 @@ script_statuses: Dict[str, Dict[str, ScriptExecutionStatus]] = {}
 # 会话超时（秒）
 SESSION_TIMEOUT = 3600  # 1小时
 
-# Playwright工作空间路径
-PLAYWRIGHT_WORKSPACE = Path(r"C:\Users\86134\Desktop\workspace\playwright-workspace")
+# Playwright工作空间路径（可配置）
+from app.utils.workspace import resolve_playwright_workspace
+PLAYWRIGHT_WORKSPACE = resolve_playwright_workspace()
 SCRIPTS_UPLOAD_PATH = PLAYWRIGHT_WORKSPACE / "uploads"
 
 # 统一执行请求和响应模型

@@ -137,6 +137,35 @@ class DatabaseScriptService:
         except Exception as e:
             logger.error(f"获取脚本失败: {script_id} - {e}")
             raise
+
+    async def get_scripts_by_session_or_analysis_id(self, identifier: str) -> List[TestScript]:
+        """根据 session_id 或 analysis_result_id 获取脚本列表。
+
+        说明：历史实现中，部分保存逻辑将 analysis_result_id 误写入 session_id 字段。
+        因此这里先按 session_id 查询；若为空，再按 analysis_result_id 查询。
+        """
+        try:
+            async with db_manager.get_session() as session:
+                # 1) 先按 session_id 查询
+                scripts = await self.script_repo.get_by_session_id(session, identifier)
+                results: List[TestScript] = [self._db_to_pydantic(s) for s in scripts] if scripts else []
+
+                if results:
+                    return results
+
+                # 2) 兼容：按 analysis_result_id 查询
+                from sqlalchemy import select
+                from app.database.models.scripts import TestScript as DBTestScript
+
+                alt = await session.execute(
+                    select(DBTestScript).where(DBTestScript.analysis_result_id == identifier)
+                )
+                alt_scripts = alt.scalars().all()
+                return [self._db_to_pydantic(s) for s in alt_scripts]
+
+        except Exception as e:
+            logger.error(f"按会话或分析ID获取脚本失败: {identifier} - {e}")
+            raise
     
     async def update_script(self, script_id: str, updates: Dict[str, Any]) -> Optional[TestScript]:
         """更新脚本（同时更新数据库和文件系统）"""

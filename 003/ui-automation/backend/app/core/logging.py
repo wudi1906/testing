@@ -11,8 +11,16 @@ from app.core.config import settings
 
 def setup_logging():
     """设置日志配置"""
-    
-    # 移除默认的日志处理器
+    # 尝试将控制台编码设置为UTF-8，避免Windows控制台输出表情/中文时报编码错误
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+    # 移除默认的日志处理器s
     logger.remove()
     
     # 创建日志目录

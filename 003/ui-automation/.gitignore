@@ -1,0 +1,64 @@
+# API密钥和敏感配置文件
+api-keys-local.bat
+api-keys-local.sh
+.env
+.env.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.eslintcache
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 日志文件
+logs/
+*.log
+
+# 数据库
+*.db
+*.sqlite3
+
+# 上传文件
+uploads/
+temp/
+
+# 测试报告
+test-results/
+playwright-report/
+coverage/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+
+# Midscene报告
+midscene_run/

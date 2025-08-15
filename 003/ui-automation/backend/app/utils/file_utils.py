@@ -197,12 +197,25 @@ async def sync_script_to_workspace(script_name: str, script_content: str, script
         safe_name = "".join(c for c in script_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         safe_name = safe_name.replace(' ', '_')
 
-        # 为Playwright脚本添加.spec后缀
+        # 为Playwright脚本处理文件名
         if script_format.lower() == 'playwright':
-            if not safe_name.endswith('.spec'):
-                safe_name = f"{safe_name}.spec"
-
-        filename = f"{safe_name}.{extension}"
+            # 如果文件名已经包含完整的 .spec.ts 格式，直接使用
+            if safe_name.endswith('.spec.ts') or safe_name.endswith('.spec.js'):
+                filename = safe_name
+            else:
+                # 移除可能的扩展名
+                name_without_ext = safe_name
+                for ext in ['.ts', '.js']:
+                    if name_without_ext.endswith(ext):
+                        name_without_ext = name_without_ext[:-len(ext)]
+                
+                # 检查是否已经有.spec后缀
+                if not name_without_ext.endswith('.spec'):
+                    filename = f"{name_without_ext}.spec.{extension}"
+                else:
+                    filename = f"{name_without_ext}.{extension}"
+        else:
+            filename = f"{safe_name}.{extension}"
         storage_file_path = storage_dir / filename
         workspace_file_path = workspace_dir / filename
 

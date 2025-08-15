@@ -49,6 +49,13 @@ class ScriptUpdateRequest(BaseModel):
     tags: Optional[List[str]] = None
     category: Optional[str] = None
     priority: Optional[int] = None
+class GeneratedScriptsResponse(BaseModel):
+    status: str
+    session_id: str
+    scripts: List[Dict[str, Any]] = []
+    total_scripts: int = 0
+    message: str = ""
+
 
 
 class ScriptExecuteRequest(BaseModel):
@@ -134,6 +141,36 @@ async def get_script(script_id: str):
     except Exception as e:
         logger.error(f"获取脚本失败: {script_id} - {e}")
         raise HTTPException(status_code=500, detail=f"获取脚本失败: {str(e)}")
+
+
+@router.get("/create/scripts/{session_or_analysis_id}", response_model=GeneratedScriptsResponse)
+async def get_generated_scripts(session_or_analysis_id: str):
+    """根据 session_id（或兼容 analysis_result_id）获取本次生成的脚本内容，供前端自动保存。
+
+    兼容性说明：早期链路可能把 analysis_result_id 作为会话标识保存在脚本表的 analysis_result_id 字段；
+    因此前端传入同一个 ID 时，这里会先按 session_id 查；若无结果，再按 analysis_result_id 查。
+    """
+    try:
+        scripts = await database_script_service.get_scripts_by_session_or_analysis_id(session_or_analysis_id)
+        simple = [
+            {
+                "format": s.script_format.value,
+                "content": s.content,
+                "filename": s.name,
+                "file_path": s.file_path,
+            }
+            for s in scripts
+        ]
+        return GeneratedScriptsResponse(
+            status="success",
+            session_id=session_or_analysis_id,
+            scripts=simple,
+            total_scripts=len(simple),
+            message="ok"
+        )
+    except Exception as e:
+        logger.error(f"获取生成脚本失败: {session_or_analysis_id} - {e}")
+        raise HTTPException(status_code=500, detail=f"获取生成脚本失败: {str(e)}")
 
 
 @router.put("/scripts/{script_id}", response_model=TestScript)

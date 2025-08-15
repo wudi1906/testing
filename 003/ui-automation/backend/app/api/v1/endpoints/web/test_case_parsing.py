@@ -323,10 +323,14 @@ async def process_test_case_parse_task(session_id: str):
 
         # 设置消息回调函数
         async def message_callback(ctx: ClosureContext, message: StreamMessage, message_ctx: MessageContext) -> None:
-            """处理来自智能体的消息"""
+            """处理来自智能体的消息（提升为INFO级别详细输出）"""
             try:
                 await message_queue.put(message)
-                logger.debug(f"收到智能体消息: {message.content[:100]}...")
+                safe_preview = (message.content or "").replace("\n", " ")[:200]
+                logger.info(
+                    f"🧠 智能体消息 | type={message.type} | region={message.region} | source={message.source} | content[0:200]="
+                    f"{safe_preview}"
+                )
             except Exception as e:
                 logger.error(f"消息回调处理错误: {str(e)}")
 

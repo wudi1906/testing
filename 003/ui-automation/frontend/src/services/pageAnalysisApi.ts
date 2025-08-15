@@ -1,14 +1,14 @@
 import axios from 'axios';
 
-// API基础配置
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// API基础配置（走Vite代理，默认留空→相对路径，从而被 /api 代理到后端8002）
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
 
 // 创建axios实例
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   timeout: 30000, // 30秒超时，因为AI分析可能需要较长时间
   headers: {
-    'Content-Type': 'application/json',
+    // 重要：文件上传由调用处显式设置 multipart/form-data，这里保持默认
   },
 });
 

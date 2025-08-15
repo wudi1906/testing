@@ -5,7 +5,8 @@
 import axios, { AxiosResponse } from 'axios';
 
 // 配置基础URL
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// 使用相对路径，走 Vite 代理到 8002；如需直连后端，可设置 VITE_API_URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 const API_VERSION = '/api/v1';
 
 // 创建axios实例

@@ -12,6 +12,7 @@ from sqlalchemy import desc, func
 from app.database.connection import db_manager
 from app.database.models.reports import TestReport
 from app.core.logging import get_logger
+from app.utils.workspace import resolve_playwright_workspace
 
 logger = get_logger(__name__)
 
@@ -20,7 +21,7 @@ class TestReportService:
     """测试报告服务"""
     
     def __init__(self):
-        self.playwright_workspace = Path(r"C:\Users\86134\Desktop\workspace\playwright-workspace")
+        self.playwright_workspace = resolve_playwright_workspace()
         self.report_base_dir = self.playwright_workspace / "midscene_run" / "report"
     
     async def save_test_report(self,

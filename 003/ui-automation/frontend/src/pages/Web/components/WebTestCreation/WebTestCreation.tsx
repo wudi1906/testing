@@ -30,6 +30,7 @@ import MDEditor from '@uiw/react-md-editor';
 
 // 移除未使用的API导入
 import { PageAnalysisApi } from '../../../../services/pageAnalysisApi';
+import { getGeneratedScripts, saveScriptFromSession, getScriptStatistics } from '../../../../services/api';
 import './WebTestCreation.css';
 
 const { Text, Paragraph } = Typography;
@@ -45,6 +46,7 @@ const WebTestCreation: React.FC = () => {
   // 处理状态
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
 
   // 内容变更检测状态
   const [lastGeneratedContent, setLastGeneratedContent] = useState<string>('');
@@ -66,6 +68,7 @@ const WebTestCreation: React.FC = () => {
 
   // 页面分析API实例
   const pageAnalysisApi = new PageAnalysisApi();
+  const [currentSessionId, setCurrentSessionId] = useState<string>('');
 
   // 图片上传状态
   const [imagePreview, setImagePreview] = useState<string>('');
@@ -425,10 +428,46 @@ const WebTestCreation: React.FC = () => {
           // 这里可以添加SSE连接逻辑，但为了不阻塞，我们暂时不实现
         }
 
-        // 提示用户可以在执行页面查看结果
-        setTimeout(() => {
-          message.info('生成的脚本将出现在"执行测试"页面的脚本列表中');
-        }, 2000);
+        // 若返回了会话ID，则自动轮询获取脚本并保存到数据库
+        if (result.session_id) {
+          setCurrentSessionId(result.session_id as string);
+          try {
+            setAutoSaving(true);
+            // 轮询最多 20 次（约 30 秒）
+            let saved = false;
+            for (let i = 0; i < 20; i++) {
+              try {
+                const gen = await getGeneratedScripts(result.session_id as string);
+                if (gen && Array.isArray(gen.scripts) && gen.scripts.length > 0) {
+                  for (const s of gen.scripts) {
+                    await saveScriptFromSession({
+                      session_id: result.session_id as string,
+                      name: s.filename || `UI测试${s.format}脚本_${Date.now()}`,
+                      description: '自动生成的UI测试脚本',
+                      script_format: s.format,
+                      script_type: 'image_analysis',
+                      test_description: form.getFieldValue('test_description') || '',
+                      content: s.content,
+                      tags: ['UI测试','自动化']
+                    });
+                  }
+                  saved = true;
+                  message.success(`已自动保存 ${gen.scripts.length} 个脚本到数据库`);
+                  try { const stats = await getScriptStatistics(); console.log('脚本统计更新:', stats); } catch {}
+                  break;
+                }
+              } catch {}
+              await new Promise(r => setTimeout(r, 1500));
+            }
+            if (!saved) {
+              message.warning('暂未获取到生成的脚本，请稍后在“执行测试”页刷新或重试生成');
+            }
+          } finally {
+            setAutoSaving(false);
+          }
+        } else {
+          setTimeout(() => { message.info('生成的脚本将在完成后出现在“执行测试”页面'); }, 2000);
+        }
 
       } else {
         throw new Error(result.message || '生成失败');
