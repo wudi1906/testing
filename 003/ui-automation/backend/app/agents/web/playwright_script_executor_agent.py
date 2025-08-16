@@ -426,46 +426,46 @@ test("AI自动化测试", async ({{
                                 await self.send_response(f"⚠️ {line}")
                                 logger.warning(f"[Playwright Error] {line}")
 
-                except subprocess.TimeoutExpired:
-                    logger.error("Playwright测试执行超时")
-                    raise Exception("测试执行超时（5分钟）")
-                except UnicodeDecodeError as e:
-                    logger.warning(f"编码错误，尝试使用字节模式: {str(e)}")
-                    try:
-                        result = await asyncio.to_thread(
-                            subprocess.run,
-                            command_str,
-                            cwd=self.playwright_workspace,
-                            capture_output=True,
-                            text=False,
-                            env=env_with_utf8,
-                            timeout=300,
-                            shell=True
-                        )
+                    except subprocess.TimeoutExpired:
+                        logger.error("Playwright测试执行超时")
+                        raise Exception("测试执行超时（5分钟）")
+                    except UnicodeDecodeError as e:
+                        logger.warning(f"编码错误，尝试使用字节模式: {str(e)}")
+                        try:
+                            result = await asyncio.to_thread(
+                                subprocess.run,
+                                command_str,
+                                cwd=self.playwright_workspace,
+                                capture_output=True,
+                                text=False,
+                                env=env_with_utf8,
+                                timeout=300,
+                                shell=True
+                            )
 
-                        return_code = result.returncode
+                            return_code = result.returncode
 
-                        def safe_decode(byte_data):
-                            if not byte_data:
-                                return []
-                            try:
-                                return byte_data.decode('utf-8').splitlines()
-                            except UnicodeDecodeError:
+                            def safe_decode(byte_data):
+                                if not byte_data:
+                                    return []
                                 try:
-                                    return byte_data.decode('gbk').splitlines()
+                                    return byte_data.decode('utf-8').splitlines()
                                 except UnicodeDecodeError:
-                                    return byte_data.decode('utf-8', errors='replace').splitlines()
+                                    try:
+                                        return byte_data.decode('gbk').splitlines()
+                                    except UnicodeDecodeError:
+                                        return byte_data.decode('utf-8', errors='replace').splitlines()
 
-                        stdout_lines = safe_decode(result.stdout)
-                        stderr_lines = safe_decode(result.stderr)
+                            stdout_lines = safe_decode(result.stdout)
+                            stderr_lines = safe_decode(result.stderr)
 
-                    except Exception as inner_e:
-                        logger.error(f"字节模式执行也失败: {str(inner_e)}")
-                        raise Exception(f"执行失败: {str(inner_e)}")
+                        except Exception as inner_e:
+                            logger.error(f"字节模式执行也失败: {str(inner_e)}")
+                            raise Exception(f"执行失败: {str(inner_e)}")
 
-                except Exception as e:
-                    logger.error(f"Playwright测试执行出错：{str(e)}")
-                    raise
+                    except Exception as e:
+                        logger.error(f"Playwright测试执行出错：{str(e)}")
+                        raise
 
             else:
                 # 非Windows系统使用异步subprocess
