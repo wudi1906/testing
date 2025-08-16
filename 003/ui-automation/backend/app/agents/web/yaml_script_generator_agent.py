@@ -54,7 +54,8 @@ class YAMLGeneratorAgent(BaseAgent):
         return agent_factory.create_assistant_agent(
             name="yaml_generator",
             system_message=cls._build_prompt_template(),
-            model_client_type="deepseek",
+            model_client_type="auto",
+            task_type="yaml_generation",  # 指定任务类型为YAML代码生成，自动选择DeepSeek
             model_client_stream=True,
             **kwargs
         )

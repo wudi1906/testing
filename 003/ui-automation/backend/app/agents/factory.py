@@ -10,7 +10,13 @@ from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
 from loguru import logger
 
 from app.core.config import settings
-from app.core.llms import get_deepseek_model_client, get_uitars_model_client, get_qwenvl_model_client
+from app.core.llms import (
+    get_deepseek_model_client, 
+    get_uitars_model_client, 
+    get_qwenvl_model_client, 
+    get_glm_model_client,
+    get_optimal_model_for_task
+)
 from app.core.types import AgentTypes, TopicTypes, AGENT_NAMES, AgentPlatform
 from app.core.agents.base import BaseAgent
 
@@ -72,29 +78,39 @@ class AgentFactory:
     def create_assistant_agent(self,
                                name: str,
                                system_message: str,
-                               model_client_type: str = "deepseek",
+                               model_client_type: str = "auto",
                                model_client_stream: bool = True,
+                               task_type: str = "default",
                                **kwargs) -> AssistantAgent:
-        """创建 AssistantAgent 实例
+        """创建 AssistantAgent 实例 - 支持智能模型选择
         
         Args:
             name: 智能体名称
             system_message: 系统提示词
-            model_client_type: 模型客户端类型 ("deepseek" 或 "uitars")
+            model_client_type: 模型客户端类型 ("auto", "qwenvl", "deepseek", "glm", "uitars")
             model_client_stream: 是否使用流式响应
+            task_type: 任务类型，用于自动选择最优模型
             **kwargs: 其他参数
             
         Returns:
             AssistantAgent: 创建的智能体实例
         """
         try:
-            # 选择模型客户端
-            if model_client_type == "uitars":
-                model_client = get_uitars_model_client()
-            elif model_client_type == "qwenvl":
+            # 智能选择模型客户端
+            if model_client_type == "auto":
+                model_client = get_optimal_model_for_task(task_type)
+                logger.info(f"🎯 智能选择模型 - 任务: {task_type}")
+            elif model_client_type == "qwenvl" or model_client_type == "qwen":
                 model_client = get_qwenvl_model_client()
-            else:
+            elif model_client_type == "deepseek":
                 model_client = get_deepseek_model_client()
+            elif model_client_type == "glm":
+                model_client = get_glm_model_client()
+            elif model_client_type == "uitars":
+                model_client = get_uitars_model_client()
+            else:
+                logger.warning(f"未知的模型客户端类型: {model_client_type}，使用智能选择")
+                model_client = get_optimal_model_for_task(task_type)
             
             # 创建 AssistantAgent
             agent = AssistantAgent(
@@ -130,14 +146,29 @@ class AgentFactory:
             
             agent_class = self._agent_classes[agent_type]
             
-            # 根据智能体类型选择合适的模型客户端
+            # 根据智能体类型智能选择最优模型客户端
             if not kwargs.get('model_client_instance'):
-                if agent_type in [AgentTypes.IMAGE_ANALYZER.value, AgentTypes.PAGE_ANALYZER.value]:
-                    kwargs['model_client_instance'] = get_uitars_model_client()
-                elif agent_type == AgentTypes.TEST_CASE_ELEMENT_PARSER.value:
-                    kwargs['model_client_instance'] = get_deepseek_model_client()
+                # 图片和页面分析任务 - 使用QWen-VL (最佳视觉理解)
+                if agent_type in [AgentTypes.IMAGE_ANALYZER.value, AgentTypes.PAGE_ANALYZER.value, 
+                                 AgentTypes.MULTIMODAL_ANALYZER.value]:
+                    kwargs['model_client_instance'] = get_optimal_model_for_task("ui_analysis")
+                    logger.info(f"🎯 {agent_type} -> 使用QWen-VL(视觉分析)")
+                    
+                # 代码生成任务 - 使用DeepSeek (性价比极高)
+                elif agent_type in [AgentTypes.YAML_GENERATOR.value, AgentTypes.PLAYWRIGHT_GENERATOR.value, 
+                                   AgentTypes.TEST_CASE_ELEMENT_PARSER.value]:
+                    kwargs['model_client_instance'] = get_optimal_model_for_task("code_generation")
+                    logger.info(f"💰 {agent_type} -> 使用DeepSeek(代码生成)")
+                    
+                # 复杂分析任务 - 使用GLM-4V (多模态能力强)
+                elif agent_type in [AgentTypes.RESULT_ANALYZER.value, AgentTypes.REPORT_GENERATOR.value]:
+                    kwargs['model_client_instance'] = get_optimal_model_for_task("complex_analysis")
+                    logger.info(f"🧠 {agent_type} -> 使用GLM-4V(复杂分析)")
+                    
+                # 其他任务 - 默认使用QWen-VL
                 else:
-                    kwargs['model_client_instance'] = get_deepseek_model_client()
+                    kwargs['model_client_instance'] = get_optimal_model_for_task("default")
+                    logger.info(f"🎯 {agent_type} -> 使用QWen-VL(默认最佳)")
             
             # 创建智能体实例
             agent = agent_class(**kwargs)

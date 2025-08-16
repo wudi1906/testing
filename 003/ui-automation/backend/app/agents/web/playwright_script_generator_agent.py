@@ -54,7 +54,8 @@ class PlaywrightGeneratorAgent(BaseAgent):
         return agent_factory.create_assistant_agent(
             name="playwright_generator",
             system_message=cls._build_prompt_template_static(),
-            model_client_type="deepseek",
+            model_client_type="auto",
+            task_type="playwright_generation",  # 指定任务类型为Playwright代码生成，自动选择DeepSeek
             model_client_stream=True,
             **kwargs
         )

@@ -196,26 +196,49 @@ async def sync_script_to_workspace(script_name: str, script_content: str, script
         # 生成安全的文件名
         safe_name = "".join(c for c in script_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         safe_name = safe_name.replace(' ', '_')
+        
+        # 详细日志记录文件名生成过程
+        logger.info(f"🔍 文件名生成调试 - 原始脚本名: '{script_name}'")
+        logger.info(f"🔍 文件名生成调试 - 安全文件名: '{safe_name}'")
+        logger.info(f"🔍 文件名生成调试 - 脚本格式: '{script_format}'")
+        logger.info(f"🔍 文件名生成调试 - 扩展名: '{extension}'")
 
         # 为Playwright脚本处理文件名
         if script_format.lower() == 'playwright':
             # 如果文件名已经包含完整的 .spec.ts 格式，直接使用
             if safe_name.endswith('.spec.ts') or safe_name.endswith('.spec.js'):
                 filename = safe_name
+                logger.info(f"🔍 文件名生成调试 - 使用现有完整格式: '{filename}'")
             else:
                 # 移除可能的扩展名
                 name_without_ext = safe_name
+                logger.info(f"🔍 文件名生成调试 - 处理前文件名: '{name_without_ext}'")
+                
                 for ext in ['.ts', '.js']:
                     if name_without_ext.endswith(ext):
                         name_without_ext = name_without_ext[:-len(ext)]
+                        logger.info(f"🔍 文件名生成调试 - 移除扩展名 {ext}: '{name_without_ext}'")
                 
-                # 检查是否已经有.spec后缀
-                if not name_without_ext.endswith('.spec'):
-                    filename = f"{name_without_ext}.spec.{extension}"
-                else:
-                    filename = f"{name_without_ext}.{extension}"
+                # 重要修复：清理文件名中的spec，防止重复
+                # 先移除可能存在的spec后缀，然后重新添加
+                if name_without_ext.endswith('spec') or name_without_ext.endswith('spects'):
+                    # 移除末尾的spec或spects
+                    if name_without_ext.endswith('spects'):
+                        name_without_ext = name_without_ext[:-6]  # 移除'spects'
+                        logger.info(f"🔍 文件名生成调试 - 移除错误的'spects': '{name_without_ext}'")
+                    elif name_without_ext.endswith('spec'):
+                        name_without_ext = name_without_ext[:-4]  # 移除'spec'
+                        logger.info(f"🔍 文件名生成调试 - 移除现有'spec': '{name_without_ext}'")
+                
+                # 移除末尾可能的下划线或点
+                name_without_ext = name_without_ext.rstrip('_.')
+                
+                # 生成最终文件名
+                filename = f"{name_without_ext}.spec.{extension}"
+                logger.info(f"🔍 文件名生成调试 - 最终Playwright文件名: '{filename}'")
         else:
             filename = f"{safe_name}.{extension}"
+            logger.info(f"🔍 文件名生成调试 - 非Playwright文件名: '{filename}'")
         storage_file_path = storage_dir / filename
         workspace_file_path = workspace_dir / filename
 

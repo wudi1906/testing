@@ -361,6 +361,52 @@ test("AI自动化测试", async ({{
 
             # 设置环境变量
             env = os.environ.copy()
+            
+            # 确保关键的AI API密钥被传递到子进程
+            # 直接从settings中读取API密钥配置，添加异常处理
+            ai_key_mappings = {}
+            try:
+                ai_key_mappings = {
+                    'QWEN_VL_API_KEY': getattr(settings, 'QWEN_VL_API_KEY', ''),
+                    'QWEN_API_KEY': getattr(settings, 'QWEN_API_KEY', ''),
+                    'GLM_API_KEY': getattr(settings, 'GLM_API_KEY', ''),
+                    'DEEPSEEK_API_KEY': getattr(settings, 'DEEPSEEK_API_KEY', ''),
+                    'OPENAI_API_KEY': getattr(settings, 'OPENAI_API_KEY', ''),
+                    'UI_TARS_API_KEY': getattr(settings, 'UI_TARS_API_KEY', ''),
+                    'GEMINI_API_KEY': getattr(settings, 'GEMINI_API_KEY', ''),
+                }
+                logger.info("🔍 成功从settings读取API密钥配置")
+            except Exception as e:
+                logger.error(f"❌ 从settings读取API密钥配置失败: {e}")
+                # 使用从环境变量获取的备用值
+                ai_key_mappings = {
+                    'QWEN_VL_API_KEY': os.getenv('QWEN_VL_API_KEY', ''),
+                    'QWEN_API_KEY': os.getenv('QWEN_API_KEY', ''),
+                    'GLM_API_KEY': os.getenv('GLM_API_KEY', ''),
+                    'DEEPSEEK_API_KEY': os.getenv('DEEPSEEK_API_KEY', ''),
+                    'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY', ''),
+                    'UI_TARS_API_KEY': os.getenv('UI_TARS_API_KEY', ''),
+                    'GEMINI_API_KEY': os.getenv('GEMINI_API_KEY', ''),
+                }
+                logger.info("🔄 使用环境变量备用API密钥配置")
+            
+            # 设置有效的API密钥到环境变量
+            logger.info("🔍 开始设置AI API密钥到子进程环境变量...")
+            for key, value in ai_key_mappings.items():
+                try:
+                    if value and value.strip() and not value.startswith('your-'):
+                        env[key] = value
+                        logger.info(f"🔑 设置AI密钥到子进程: {key} = {value[:10]}...")
+                    elif key in os.environ and os.environ[key]:
+                        env[key] = os.environ[key]
+                        logger.info(f"🔑 从环境变量传递AI密钥到子进程: {key}")
+                    else:
+                        logger.warning(f"⚠️ API密钥未设置: {key}")
+                except Exception as e:
+                    logger.error(f"❌ 设置API密钥失败 {key}: {e}")
+            
+            logger.info(f"🔍 API密钥设置完成，共设置 {len([k for k, v in env.items() if k.endswith('_API_KEY')])} 个密钥")
+            
             if config:
                 # 处理不同类型的配置对象中的环境变量
                 env_vars = None
@@ -371,10 +417,22 @@ test("AI自动化测试", async ({{
 
                 if env_vars:
                     env.update(env_vars)
-                    logger.info(f"添加环境变量: {list(env_vars.keys())}")
+                    logger.info(f"添加配置中的环境变量: {list(env_vars.keys())}")
 
             logger.info(f"执行命令: {' '.join(command)}")
             logger.info(f"工作目录: {self.playwright_workspace}")
+
+            # 详细的环境变量调试日志
+            logger.info("🔍 Playwright执行环境调试 - 环境变量检查:")
+            env_keys_to_check = ['QWEN_VL_API_KEY', 'QWEN_API_KEY', 'GLM_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY']
+            for key in env_keys_to_check:
+                value = env.get(key)
+                if value:
+                    logger.info(f"  {key}: ✅ 存在 ({value[:10]}...)")
+                else:
+                    logger.info(f"  {key}: ❌ 未设置")
+            
+            logger.info(f"🔍 Playwright执行调试 - 环境变量总数: {len(env)}")
 
             # 使用增强执行器进行实时流式执行
             try:

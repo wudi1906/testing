@@ -6,58 +6,50 @@ export default defineConfig({
    * 优先使用高效的云端视觉AI服务
    */
   aiModel: (() => {
-    // 自动选择最佳可用的API配置
-    const apis = [
-      {
-        name: 'QWen-VL-Plus',
-        key: process.env.QWEN_VL_API_KEY || process.env.QWEN_API_KEY,
-        provider: 'openai-compatible',
-        baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-        model: 'qwen-vl-plus'
-      },
-      {
-        name: 'GLM-4V',
-        key: process.env.GLM_API_KEY,
-        provider: 'openai-compatible',
-        baseURL: 'https://open.bigmodel.cn/api/paas/v4',
-        model: 'glm-4v'
-      },
-      {
-        name: 'DeepSeek-VL',
-        key: process.env.DEEPSEEK_API_KEY,
-        provider: 'openai-compatible',
-        baseURL: 'https://api.deepseek.com/v1',
-        model: 'deepseek-vl'
-      },
-      {
-        name: 'OpenAI GPT-4V',
-        key: process.env.OPENAI_API_KEY,
-        provider: 'openai',
-        baseURL: 'https://api.openai.com/v1',
-        model: 'gpt-4o'
-      }
+    // 详细的环境变量调试日志
+    console.log('🔍 Midscene配置调试 - 环境变量检查:');
+    console.log('  QWEN_VL_API_KEY:', process.env.QWEN_VL_API_KEY ? `存在(${process.env.QWEN_VL_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
+    console.log('  QWEN_API_KEY:', process.env.QWEN_API_KEY ? `存在(${process.env.QWEN_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
+    console.log('  GLM_API_KEY:', process.env.GLM_API_KEY ? `存在(${process.env.GLM_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
+    console.log('  DEEPSEEK_API_KEY:', process.env.DEEPSEEK_API_KEY ? `存在(${process.env.DEEPSEEK_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
+    console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `存在(${process.env.OPENAI_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
+    
+    // 优先级顺序选择API密钥 (按测试验证结果排序)
+    const apiOptions = [
+      { key: process.env.QWEN_VL_API_KEY || 'sk-741f3076d4f14ba2a9ba75fc59b38938', provider: 'openai-compatible', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-plus', name: 'QWen-VL (最佳)' },
+      { key: process.env.QWEN_API_KEY || 'sk-741f3076d4f14ba2a9ba75fc59b38938', provider: 'openai-compatible', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus', name: 'QWen' },
+      { key: process.env.GLM_API_KEY || 'f168fedf2fc14e0e89d50706cdbd6ace.EV4BzLp3IGMwsl1K', provider: 'openai-compatible', baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v', name: 'GLM-4V' },
+      { key: process.env.DEEPSEEK_API_KEY || 'sk-ce1dd0750e824f369b4833c6ced9835a', provider: 'openai-compatible', baseURL: 'https://api.deepseek.com/v1', model: 'deepseek-chat', name: 'DeepSeek' },
+      { key: process.env.OPENAI_API_KEY, provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o', name: 'OpenAI' },
     ];
-
-    // 找到第一个有效的API配置
-    for (const api of apis) {
-      if (api.key && api.key.trim() && !api.key.includes('your-')) {
-        console.log(`🎯 使用AI模型: ${api.name}`);
+    
+    // 找到第一个有效的API密钥
+    for (const option of apiOptions) {
+      if (option.key && option.key.trim() && !option.key.includes('your-')) {
+        console.log('🎯 Midscene选择的API配置:', {
+          provider: option.provider,
+          model: option.model,
+          apiKey: option.key.substring(0, 10) + '...'
+        });
         return {
-          provider: api.provider,
-          baseURL: api.baseURL,
-          model: api.model,
-          apiKey: api.key
+          provider: option.provider,
+          baseURL: option.baseURL,
+          model: option.model,
+          apiKey: option.key,
         };
       }
     }
-
-    // 如果没有找到有效配置，返回默认配置并警告
-    console.warn('⚠️ 未找到有效的AI API密钥，请检查环境变量配置');
+    
+    // 如果没有找到有效的API密钥，使用默认值
+    console.warn('⚠️ 未找到有效的环境变量API密钥，使用默认配置');
+    const defaultKey = 'sk-d20e5a88d7ec47ed8ad29be76b2e6a92';
+    console.log('🎯 使用默认API密钥:', defaultKey.substring(0, 10) + '...');
+    
     return {
       provider: 'openai-compatible',
       baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
       model: 'qwen-vl-plus',
-      apiKey: 'please-set-your-api-key'
+      apiKey: defaultKey,
     };
   })(),
 

@@ -7,9 +7,9 @@ import os
 from typing import Optional, List, Dict
 try:
     from pydantic_settings import BaseSettings
-    from pydantic import validator
+    from pydantic import validator, Field
 except ImportError:
-    from pydantic import BaseSettings, validator
+    from pydantic import BaseSettings, validator, Field
 from functools import lru_cache
 
 
@@ -102,52 +102,53 @@ class DatabaseSettings(BaseSettings):
 class AIModelSettings(BaseSettings):
     """AI模型配置"""
 
-    # DeepSeek配置
-    DEEPSEEK_API_KEY: str = ""
+    # DeepSeek配置 (性价比极高，代码理解强)
+    DEEPSEEK_API_KEY: str = Field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", "sk-ce1dd0750e824f369b4833c6ced9835a"))
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
-    # Qwen-VL配置 (阿里通义千问视觉版)
-    QWEN_API_KEY: str = ""  # 兼容性配置
-    QWEN_VL_API_KEY: str = ""
+    # Qwen-VL配置 (阿里通义千问视觉版) - 最佳推荐！
+    QWEN_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_API_KEY", "sk-741f3076d4f14ba2a9ba75fc59b38938"))  # 兼容性配置
+    QWEN_VL_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_VL_API_KEY", "sk-741f3076d4f14ba2a9ba75fc59b38938"))
     QWEN_VL_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    QWEN_VL_MODEL: str = "qwen-vl-plus"  # 更新为推荐模型
+    QWEN_VL_MODEL: str = "qwen-vl-plus"  # UI自动化最佳模型
 
-    # 智谱AI GLM-4V配置
-    GLM_API_KEY: str = ""
+    # 智谱AI GLM-4V配置 (多模态能力强)
+    GLM_API_KEY: str = Field(default_factory=lambda: os.getenv("GLM_API_KEY", "f168fedf2fc14e0e89d50706cdbd6ace.EV4BzLp3IGMwsl1K"))
     GLM_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
     GLM_MODEL: str = "glm-4v"
 
     # UI-TARS配置 (豆包UI自动化专用)
-    UI_TARS_API_KEY: str = ""
+    UI_TARS_API_KEY: str = Field(default_factory=lambda: os.getenv("UI_TARS_API_KEY", "0e61f6f0-a97b-47c6-a56c-6e6d37a8eaa1"))
     UI_TARS_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
     UI_TARS_MODEL: str = "doubao-1-5-ui-tars-250428"
     UI_TARS_ENDPOINT_URL: str = ""
 
     # OpenAI配置（备用）
-    OPENAI_API_KEY: Optional[str] = None
+    OPENAI_API_KEY: Optional[str] = Field(default_factory=lambda: os.getenv("OPENAI_API_KEY"))
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o"
 
     # Gemini 配置（预留）
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = Field(default_factory=lambda: os.getenv("GEMINI_API_KEY"))
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta"
     GEMINI_MODEL: str = "gemini-2.0-flash"
 
-    # 自动选择最佳可用API密钥
+    # 自动选择最佳可用API密钥 (根据验证结果优化优先级)
     @property
     def get_best_available_api(self) -> Dict[str, str]:
-        """返回最佳可用的API配置"""
+        """返回最佳可用的API配置，优先级基于测试验证结果"""
+        # 更新优先级：QWen-VL(最佳) > GLM(多模态) > DeepSeek(性价比) > 其他
         apis = [
             ("qwen", self.QWEN_VL_API_KEY or self.QWEN_API_KEY, self.QWEN_VL_BASE_URL, self.QWEN_VL_MODEL),
             ("glm", self.GLM_API_KEY, self.GLM_BASE_URL, self.GLM_MODEL),
-            ("uitars", self.UI_TARS_API_KEY, self.UI_TARS_BASE_URL, self.UI_TARS_MODEL),
             ("deepseek", self.DEEPSEEK_API_KEY, self.DEEPSEEK_BASE_URL, self.DEEPSEEK_MODEL),
-            ("openai", self.OPENAI_API_KEY, self.OPENAI_BASE_URL, self.OPENAI_MODEL),
+            ("uitars", self.UI_TARS_API_KEY, self.UI_TARS_BASE_URL, self.UI_TARS_MODEL),  # 降级，当前不可用
+            ("openai", self.OPENAI_API_KEY, self.OPENAI_BASE_URL, self.OPENAI_MODEL),    # 降级，密钥无效
         ]
         
         for name, key, base_url, model in apis:
-            if key and key.strip():
+            if key and key.strip() and not key.startswith('your-'):
                 return {
                     "provider": name,
                     "api_key": key,
@@ -157,18 +158,30 @@ class AIModelSettings(BaseSettings):
         
         return {"provider": "none", "api_key": "", "base_url": "", "model": ""}
 
-    # 多模态模型优先级配置
+    # 基于验证结果的模型优先级配置
     @property
     def multimodal_model_priority(self) -> Dict[str, List[str]]:
-        """获取多模态模型优先级配置"""
+        """获取多模态模型优先级配置 - 基于实际测试结果"""
         return {
-            "gui_tasks": ["uitars", "qwen_vl", "deepseek"],
-            "general_vision": ["qwen_vl", "uitars", "deepseek"],
-            "text_tasks": ["deepseek", "qwen_vl", "uitars"]
+            # UI任务 - QWen-VL最佳，GLM备选，DeepSeek性价比
+            "gui_tasks": ["qwen_vl", "glm", "deepseek"],
+            "ui_analysis": ["qwen_vl", "glm", "deepseek"],
+            "image_analysis": ["qwen_vl", "glm", "deepseek"],
+            
+            # 代码生成任务 - DeepSeek性价比最高
+            "code_generation": ["deepseek", "qwen_vl", "glm"],
+            "text_processing": ["deepseek", "qwen_vl", "glm"],
+            
+            # 复杂多模态任务 - GLM能力强，QWen-VL也很好
+            "complex_analysis": ["glm", "qwen_vl", "deepseek"],
+            "multimodal_reasoning": ["glm", "qwen_vl", "deepseek"],
+            
+            # 默认使用QWen-VL
+            "default": ["qwen_vl", "glm", "deepseek"]
         }
 
-    # 默认多模态模型选择策略
-    DEFAULT_MULTIMODAL_MODEL: str = "uitars"
+    # 默认模型选择策略 (更新为最佳模型)
+    DEFAULT_MULTIMODAL_MODEL: str = "qwen_vl"
 class FileStorageSettings(BaseSettings):
     """文件存储配置"""
 

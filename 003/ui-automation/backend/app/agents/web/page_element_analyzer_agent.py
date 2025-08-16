@@ -50,13 +50,14 @@ class PageAnalyzerAgent(BaseAgent):
 
     @classmethod
     def create_ui_expert_agent(cls, **kwargs) -> AssistantAgent:
-        """创建UI专家智能体"""
+        """创建UI专家智能体 - 使用最优视觉理解模型"""
         from app.agents.factory import agent_factory
 
         return agent_factory.create_assistant_agent(
             name=AgentTypes.UI_EXPERT.value,
             system_message=cls._build_ui_expert_prompt(),
-            model_client_type="uitars",
+            model_client_type="auto",
+            task_type="ui_analysis",  # 指定任务类型为UI分析，自动选择QWen-VL
             **kwargs
         )
 
