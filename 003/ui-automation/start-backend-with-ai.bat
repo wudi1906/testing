@@ -8,9 +8,9 @@ set PYTHONIOENCODING=utf-8
 
 :: AI模型API密钥配置 - 从本地密钥文件读取
 :: 注意：请创建 api-keys-local.bat 文件来设置真实密钥
-if exist "003\ui-automation\api-keys-local.bat" (
+if exist "api-keys-local.bat" (
     echo 🔑 加载本地API密钥配置...
-    call "003\ui-automation\api-keys-local.bat"
+    call "api-keys-local.bat"
 ) else (
     echo ⚠️  未找到 api-keys-local.bat 文件
     echo 请参考 api-keys-template.bat 创建您的密钥配置文件
