@@ -13,7 +13,8 @@ test("问卷填写测试 - 网购行为调研", async ({
   aiInput,
   aiAssert,
   aiWaitFor,
-  aiScroll
+  aiScroll,
+  aiSelect
 }) => {
   // 1. 检查并点击开始作答按钮（如果有）
   await aiWaitFor('页面加载完成');
@@ -80,17 +81,21 @@ test("问卷填写测试 - 网购行为调研", async ({
   await aiTap('"比较满意"选项');
   await aiWaitFor('下一题按钮可点击');
 
-  // 13. 意见建议
+  // 13. 意见建议（修正为 (desc, value) 次序）
   await aiScroll({ direction: 'down', distance: 200 }, '文本输入区域');
   await aiInput(
-    '题目清晰，建议增加隐私提示与进度显示，移动端更友好。',
-    '意见建议输入框'
+    '意见建议输入框',
+    '题目清晰，建议增加隐私提示与进度显示，移动端更友好。'
   );
   await aiWaitFor('下一题按钮可点击');
 
-  // 14. 网购最担心的问题
-  await aiScroll({ direction: 'down', distance: 200 }, '单选题区域');
-  await aiTap('"被盗刷账户"选项');
+  // 14. 网购最担心的问题（若为下拉题，尝试使用 aiSelect；否则继续点击）
+  await aiScroll({ direction: 'down', distance: 200 }, '单选或下拉区域');
+  try {
+    await aiSelect('网购最担心的问题', '被盗刷账户');
+  } catch {
+    await aiTap('"被盗刷账户"选项');
+  }
   await aiWaitFor('提交按钮可点击');
 
   // 15. 提交问卷
