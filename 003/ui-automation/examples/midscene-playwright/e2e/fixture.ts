@@ -8,6 +8,70 @@ import midsceneConfigMock from '../midscene.mock.config';
 
 const midsceneConfig = (process.env.AI_MOCK_MODE === 'true') ? midsceneConfigMock : midsceneConfigReal;
 
+const HUMANIZE_LEVEL = Number(process.env.HUMANIZE_LEVEL || '1');
+const STEALTH_MODE = (process.env.STEALTH_MODE ?? 'true') !== 'false';
+
+function rand(min: number, max: number) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+function sleep(ms: number) { return new Promise(res => setTimeout(res, ms)); }
+async function humanPause(level = HUMANIZE_LEVEL) {
+  if (level <= 0) return;
+  // 100~300ms 轻微随机停顿
+  await sleep(rand(80, 220) + level * rand(20, 120));
+}
+
+async function installStealth(page: any) {
+  if (!STEALTH_MODE) return;
+  // 在新文档注入，避免同步问题
+  await page.addInitScript(() => {
+    try {
+      Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+      // window.chrome 伪装
+      // @ts-ignore
+      window.chrome = window.chrome || { runtime: {} };
+      // plugins / languages
+      Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+      Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en-US', 'en'] });
+      // permissions.query 伪装
+      const originalQuery = (navigator as any).permissions?.query;
+      if (originalQuery) {
+        (navigator as any).permissions.query = (parameters: any) => (
+          parameters && parameters.name === 'notifications'
+            ? Promise.resolve({ state: 'granted' })
+            : originalQuery(parameters)
+        );
+      }
+      // WebGL vendor/renderer 伪装
+      const getParameter = WebGLRenderingContext.prototype.getParameter;
+      // @ts-ignore
+      WebGLRenderingContext.prototype.getParameter = function(param: any) {
+        if (param === 37445) return 'Intel Inc.'; // UNMASKED_VENDOR_WEBGL
+        if (param === 37446) return 'Intel Iris OpenGL Engine'; // UNMASKED_RENDERER_WEBGL
+        return getParameter.call(this, param);
+      };
+      // Canvas 指纹微扰
+      const toDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function() {
+        const ctx = this.getContext('2d');
+        try {
+          // @ts-ignore
+          ctx && ctx.fillRect && ctx.fillRect(0, 0, 1, 1);
+        } catch {}
+        return toDataURL.apply(this, arguments as any);
+      } as any;
+      // WebRTC 关闭本地地址泄露
+      // @ts-ignore
+      if (window.RTCPeerConnection) {
+        const orig = RTCPeerConnection.prototype.createDataChannel;
+        RTCPeerConnection.prototype.createDataChannel = function() {
+          const pc: any = this;
+          pc && pc.setLocalDescription && (pc.setLocalDescription = async () => {});
+          return orig.apply(this, arguments as any);
+        } as any;
+      }
+    } catch {}
+  });
+}
+
 // 提供在 Mock 模式下的容错回退：当 AI 操作失败时，使用启发式 DOM 操作兜底
 function normalizeText(text: string): string {
   return (text || '').replace(/\s+/g, '').toLowerCase();
@@ -22,45 +86,54 @@ async function fallbackTapByHeuristic(page: any, description: string): Promise<v
   // 开始作答
   if (/(开始|立即开始|开始作答)/.test(description)) {
     const button = page.getByText(/开始|立即开始|开始作答/);
+    await humanPause();
     await button.first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   // 下一题
   if (/(下一题|下一页|继续|next)/i.test(description)) {
     const nextBtn = page.getByRole('button', { name: /下一|继续|next/i });
+    await humanPause();
     await nextBtn.first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   // 是/否选择
   if (/"是"/.test(description)) {
+    await humanPause();
     await page.getByText(/^\s*是\s*$/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   if (/"否"/.test(description)) {
+    await humanPause();
     await page.getByText(/^\s*否\s*$/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   // 性别 男/女
   if (/"男"/.test(description)) {
+    await humanPause();
     await page.getByText(/男/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   if (/"女"/.test(description)) {
+    await humanPause();
     await page.getByText(/女/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   // 频率、花费等常见中文全角/半角匹配
   if (/每周/.test(description)) {
+    await humanPause();
     await page.getByText(/每周/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   if (/(301|３０１|500|５００)/.test(description)) {
+    await humanPause();
     await page.getByText(/301|３０１|500|５００/).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
   // 兜底：尝试点击包含引号内文案
   const m = description.match(/"(.+?)"/);
   if (m && m[1]) {
+    await humanPause();
     await page.getByText(new RegExp(escapeRegExp(m[1]))).first().click({ timeout: 3000 }).catch(() => {});
     return;
   }
@@ -82,68 +155,76 @@ async function fillInputNearDesc(page: any, desc: string, value: string): Promis
     '[contenteditable="true"]'
   ].join(', ');
 
-  // 0) 语义相近修正：将“意见建议”视为“意见和建议”的同义
+  // 0) 语义相近修正
   const synonyms = [desc, desc.replace('意见建议', '意见和建议'), desc.replace('意见和建议', '意见建议')]
     .filter((s, i, arr) => !!s && arr.indexOf(s) === i);
 
-  // 1) getByRole('textbox') 直接命中
+  // 1) getByRole('textbox')
   for (const s of synonyms) {
     const roleBox = page.getByRole('textbox', { name: new RegExp(escapeRegExp(s)) });
     if (await roleBox.first().count().catch(() => 0)) {
       await roleBox.first().click({ timeout: 1000 }).catch(() => {});
-      await roleBox.first().fill(value).catch(() => {});
+      await roleBox.first().fill('');
+      // 类人键入
+      for (const ch of String(value)) { await roleBox.first().type(ch, { delay: rand(40, 140) }); }
       return true;
     }
   }
 
-  // 2) 通过 label/placeholder
+  // 2) label/placeholder
   for (const s of synonyms) {
     const byLabel = page.getByLabel(new RegExp(escapeRegExp(s)));
     if (await byLabel.first().count().catch(() => 0)) {
       await byLabel.first().click({ timeout: 1000 }).catch(() => {});
-      await byLabel.first().fill(value).catch(() => {});
+      await byLabel.first().fill('');
+      for (const ch of String(value)) { await byLabel.first().type(ch, { delay: rand(40, 140) }); }
       return true;
     }
     const byPlaceholder = page.getByPlaceholder(new RegExp(escapeRegExp(s)));
     if (await byPlaceholder.first().count().catch(() => 0)) {
       await byPlaceholder.first().click({ timeout: 1000 }).catch(() => {});
-      await byPlaceholder.first().fill(value).catch(() => {});
+      await byPlaceholder.first().fill('');
+      for (const ch of String(value)) { await byPlaceholder.first().type(ch, { delay: rand(40, 140) }); }
       return true;
     }
   }
 
-  // 3) 题干容器内就近查找可填充控件
+  // 3) 题干容器
   for (const s of synonyms) {
     const container = page.locator(`xpath=//*[contains(normalize-space(.), "${s}")]`).first();
     if (await container.count().catch(() => 0)) {
-      // 优先 textarea
       const ta = container.locator('textarea');
       if (await ta.first().count().catch(() => 0)) {
         await ta.first().click({ timeout: 1000 }).catch(() => {});
-        await ta.first().fill(value).catch(() => {});
+        await ta.first().fill('');
+        for (const ch of String(value)) { await ta.first().type(ch, { delay: rand(40, 140) }); }
         return true;
       }
       const field = container.locator(fillableSelectors).first();
       if (await field.count().catch(() => 0)) {
         await field.click({ timeout: 1000 }).catch(() => {});
+        await field.fill?.('');
+        try { await field.type?.(String(value), { delay: rand(40, 140) }); return true; } catch {}
         await field.fill?.(value).catch(() => {});
         return true;
       }
     }
   }
 
-  // 4) 全局兜底：页面上唯一可见 textarea
+  // 4) 全局 textarea
   const anyTextarea = page.locator('textarea').filter({ hasNot: page.locator('[type="hidden"]') }).first();
   if (await anyTextarea.count().catch(() => 0)) {
     await anyTextarea.click({ timeout: 1000 }).catch(() => {});
-    await anyTextarea.fill(value).catch(() => {});
+    await anyTextarea.fill('');
+    for (const ch of String(value)) { await anyTextarea.type(ch, { delay: rand(40, 140) }); }
     return true;
   }
 
-  // 5) 全局兜底：第一个可填充控件
+  // 5) 全局兜底
   const anyField = page.locator(fillableSelectors).first();
   if (await anyField.count().catch(() => 0)) {
     await anyField.click({ timeout: 1000 }).catch(() => {});
+    try { await anyField.type?.(String(value), { delay: rand(40, 140) }); return true; } catch {}
     await anyField.fill?.(value).catch(() => {});
     return true;
   }
@@ -367,3 +448,39 @@ export const test = baseWithAi.extend<{
 
 
 export { expect } from '@playwright/test';
+
+// 翻页驱动：点击“下一题/下一页/继续/提交”等，并等待稳定
+export async function nextStep(page: any): Promise<void> {
+  const candidates = [
+    { role: 'button', name: /提交|下一题|下一页|继续|保存并继续|提交并下一页/i },
+    { role: 'link', name: /提交|下一题|下一页|继续/i },
+  ];
+  for (const c of candidates) {
+    try {
+      const btn = page.getByRole(c.role as any, { name: c.name }).first();
+      if (await btn.count().catch(() => 0)) {
+        await btn.click({ timeout: 5000 }).catch(() => {});
+        try { await page.waitForLoadState('networkidle', { timeout: 15000 }); } catch {}
+        return;
+      }
+    } catch {}
+  }
+  // 兜底：查找包含文案的可点击元素
+  const textBtn = page.getByText(/提交|下一题|下一页|继续/i).first();
+  if (await textBtn.count().catch(() => 0)) {
+    await textBtn.click({ timeout: 5000 }).catch(() => {});
+    try { await page.waitForLoadState('networkidle', { timeout: 15000 }); } catch {}
+  }
+}
+
+// 循环直到完成：每页调用 fillPageFn 完成本页作答，然后 nextStep，直到检测到完成文案
+export async function untilFinish(page: any, fillPageFn: () => Promise<void>): Promise<void> {
+  for (let i = 0; i < 1000; i++) { // 安全上限
+    // 若已完成，终止
+    const done = await page.getByText(/提交成功|感谢参与|已完成|谢谢参与/i).first().count().catch(() => 0);
+    if (done) return;
+    await fillPageFn();
+    await nextStep(page);
+    try { await page.waitForLoadState('networkidle', { timeout: 15000 }); } catch {}
+  }
+}
