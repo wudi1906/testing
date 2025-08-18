@@ -80,7 +80,7 @@ def get_marker_config() -> Dict[str, Any]:
         os.getenv("MARKER_OPENAI_API_KEY") or
         os.getenv("OPENAI_API_KEY") or
         os.getenv("DASHSCOPE_API_KEY") or
-        "sk-b34ccd05c8bb4990b4f0ea05c450589b"  # 默认值
+        ""
     )
 
     return {

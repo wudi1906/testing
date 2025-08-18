@@ -50,11 +50,11 @@ class DatabaseSettings(BaseSettings):
     DATABASE_URL: Optional[str] = None
 
     # MySQL数据库配置（作为备选）
-    MYSQL_HOST: str = "localhost"
-    MYSQL_PORT: int = 3306
-    MYSQL_USER: str = "root"
-    MYSQL_PASSWORD: str = "mysql"
-    MYSQL_DATABASE: str = "automation_db"
+    MYSQL_HOST: str = Field(default_factory=lambda: os.getenv("MYSQL_HOST", "localhost"))
+    MYSQL_PORT: int = Field(default_factory=lambda: int(os.getenv("MYSQL_PORT", "3306")))
+    MYSQL_USER: str = Field(default_factory=lambda: os.getenv("MYSQL_USER", "root"))
+    MYSQL_PASSWORD: str = Field(default_factory=lambda: os.getenv("MYSQL_PASSWORD", "123456"))
+    MYSQL_DATABASE: str = Field(default_factory=lambda: os.getenv("MYSQL_DATABASE", "test_case_automation"))
 
     # 数据库连接池配置
     DATABASE_ECHO: bool = False
@@ -103,23 +103,23 @@ class AIModelSettings(BaseSettings):
     """AI模型配置"""
 
     # DeepSeek配置 (性价比极高，代码理解强)
-    DEEPSEEK_API_KEY: str = Field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", "sk-ce1dd0750e824f369b4833c6ced9835a"))
+    DEEPSEEK_API_KEY: str = Field(default_factory=lambda: os.getenv("DEEPSEEK_API_KEY", ""))
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
 
     # Qwen-VL配置 (阿里通义千问视觉版) - 最佳推荐！
-    QWEN_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_API_KEY", "sk-741f3076d4f14ba2a9ba75fc59b38938"))  # 兼容性配置
-    QWEN_VL_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_VL_API_KEY", "sk-741f3076d4f14ba2a9ba75fc59b38938"))
+    QWEN_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_API_KEY", ""))  # 兼容性配置
+    QWEN_VL_API_KEY: str = Field(default_factory=lambda: os.getenv("QWEN_VL_API_KEY", ""))
     QWEN_VL_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     QWEN_VL_MODEL: str = "qwen-vl-plus"  # UI自动化最佳模型
 
     # 智谱AI GLM-4V配置 (多模态能力强)
-    GLM_API_KEY: str = Field(default_factory=lambda: os.getenv("GLM_API_KEY", "f168fedf2fc14e0e89d50706cdbd6ace.EV4BzLp3IGMwsl1K"))
+    GLM_API_KEY: str = Field(default_factory=lambda: os.getenv("GLM_API_KEY", ""))
     GLM_BASE_URL: str = "https://open.bigmodel.cn/api/paas/v4"
     GLM_MODEL: str = "glm-4v"
 
     # UI-TARS配置 (豆包UI自动化专用)
-    UI_TARS_API_KEY: str = Field(default_factory=lambda: os.getenv("UI_TARS_API_KEY", "0e61f6f0-a97b-47c6-a56c-6e6d37a8eaa1"))
+    UI_TARS_API_KEY: str = Field(default_factory=lambda: os.getenv("UI_TARS_API_KEY", ""))
     UI_TARS_BASE_URL: str = "https://ark.cn-beijing.volces.com/api/v3"
     UI_TARS_MODEL: str = "doubao-1-5-ui-tars-250428"
     UI_TARS_ENDPOINT_URL: str = ""

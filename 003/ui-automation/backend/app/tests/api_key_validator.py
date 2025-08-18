@@ -2,6 +2,7 @@
 API密钥深度验证工具
 检查API密钥格式、权限、余额等详细信息
 """
+import os
 import asyncio
 import aiohttp
 import json
@@ -16,7 +17,7 @@ class APIKeyValidator:
     def __init__(self):
         self.api_configs = {
             "qwen": {
-                "api_key": "sk-741f3076d4f14ba2a9ba75fc59b38938",
+                "api_key": os.getenv("QWEN_API_KEY", ""),
                 "base_url": "https://dashscope.aliyuncs.com",
                 "auth_header": "Authorization",
                 "auth_format": "Bearer {key}",
@@ -31,7 +32,7 @@ class APIKeyValidator:
                 "description": "阿里通义千问 - UI自动化最佳，中文优化，视觉理解强"
             },
             "glm": {
-                "api_key": "f168fedf2fc14e0e89d50706cdbd6ace.EV4BzLp3IGMwsl1K",
+                "api_key": os.getenv("GLM_API_KEY", ""),
                 "base_url": "https://open.bigmodel.cn",
                 "auth_header": "Authorization", 
                 "auth_format": "Bearer {key}",
@@ -44,7 +45,7 @@ class APIKeyValidator:
                 "description": "智谱AI GLM - 多模态能力强，国产可控"
             },
             "deepseek": {
-                "api_key": "sk-ce1dd0750e824f369b4833c6ced9835a",
+                "api_key": os.getenv("DEEPSEEK_API_KEY", ""),
                 "base_url": "https://api.deepseek.com",
                 "auth_header": "Authorization",
                 "auth_format": "Bearer {key}",
@@ -57,7 +58,7 @@ class APIKeyValidator:
                 "description": "DeepSeek - 代码理解强，性价比极高"
             },
             "doubao": {
-                "api_key": "ee6ab9f9-a4f1-4cfe-ad04-dd64dfb67e0f",
+                "api_key": os.getenv("UI_TARS_API_KEY", ""),
                 "base_url": "https://ark.cn-beijing.volces.com",
                 "auth_header": "Authorization",
                 "auth_format": "Bearer {key}",
@@ -70,7 +71,7 @@ class APIKeyValidator:
                 "description": "豆包 UI-TARS - UI自动化专用模型"
             },
             "gemini": {
-                "api_key": "AIzaSyCGiwgvSxkHoXbagTzusxZ_n9Ib6svg8Qc",
+                "api_key": os.getenv("GEMINI_API_KEY", ""),
                 "base_url": "https://generativelanguage.googleapis.com",
                 "auth_header": "x-goog-api-key",
                 "auth_format": "{key}",

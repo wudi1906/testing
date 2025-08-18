@@ -13,6 +13,7 @@ import webbrowser
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
+import aiohttp
 
 from autogen_core import message_handler, type_subscription, MessageContext
 from loguru import logger
@@ -362,33 +363,40 @@ test("AI自动化测试", async ({{
             # 设置环境变量
             env = os.environ.copy()
             
-            # 确保关键的AI API密钥被传递到子进程
-            # 直接从settings中读取API密钥配置，添加异常处理
+            # 确保关键的AI API密钥被传递到子进程（优先环境变量，其次settings.* 配置）
+            from app.core.config import settings as app_settings
+
+            def _get_from_settings(k: str) -> str:
+                mapping = {
+                    'QWEN_API_KEY': getattr(app_settings, 'QWEN_API_KEY', ''),
+                    'QWEN_VL_API_KEY': getattr(app_settings, 'QWEN_VL_API_KEY', ''),
+                    'GLM_API_KEY': getattr(app_settings, 'GLM_API_KEY', ''),
+                    'DEEPSEEK_API_KEY': getattr(app_settings, 'DEEPSEEK_API_KEY', ''),
+                    'UI_TARS_API_KEY': getattr(app_settings, 'UI_TARS_API_KEY', ''),
+                    'GEMINI_API_KEY': getattr(app_settings, 'GEMINI_API_KEY', ''),
+                    'OPENAI_API_KEY': getattr(app_settings, 'OPENAI_API_KEY', ''),
+                }
+                return mapping.get(k, '') or ''
+
             ai_key_mappings = {}
-            try:
-                ai_key_mappings = {
-                    'QWEN_VL_API_KEY': getattr(settings, 'QWEN_VL_API_KEY', ''),
-                    'QWEN_API_KEY': getattr(settings, 'QWEN_API_KEY', ''),
-                    'GLM_API_KEY': getattr(settings, 'GLM_API_KEY', ''),
-                    'DEEPSEEK_API_KEY': getattr(settings, 'DEEPSEEK_API_KEY', ''),
-                    'OPENAI_API_KEY': getattr(settings, 'OPENAI_API_KEY', ''),
-                    'UI_TARS_API_KEY': getattr(settings, 'UI_TARS_API_KEY', ''),
-                    'GEMINI_API_KEY': getattr(settings, 'GEMINI_API_KEY', ''),
-                }
-                logger.info("🔍 成功从settings读取API密钥配置")
-            except Exception as e:
-                logger.error(f"❌ 从settings读取API密钥配置失败: {e}")
-                # 使用从环境变量获取的备用值
-                ai_key_mappings = {
-                    'QWEN_VL_API_KEY': os.getenv('QWEN_VL_API_KEY', ''),
-                    'QWEN_API_KEY': os.getenv('QWEN_API_KEY', ''),
-                    'GLM_API_KEY': os.getenv('GLM_API_KEY', ''),
-                    'DEEPSEEK_API_KEY': os.getenv('DEEPSEEK_API_KEY', ''),
-                    'OPENAI_API_KEY': os.getenv('OPENAI_API_KEY', ''),
-                    'UI_TARS_API_KEY': os.getenv('UI_TARS_API_KEY', ''),
-                    'GEMINI_API_KEY': os.getenv('GEMINI_API_KEY', ''),
-                }
-                logger.info("🔄 使用环境变量备用API密钥配置")
+            for key in ['QWEN_API_KEY', 'QWEN_VL_API_KEY', 'GLM_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'UI_TARS_API_KEY', 'GEMINI_API_KEY']:
+                env_value = os.getenv(key, '')
+                cfg_value = _get_from_settings(key)
+                value = env_value or cfg_value
+                if value and value.strip() and not value.startswith('your-'):
+                    ai_key_mappings[key] = value
+                    src = '环境变量' if env_value else '配置文件(settings)'
+                    logger.info(f"🔑 使用{src}中的API密钥: {key}")
+                else:
+                    logger.warning(f"⚠️ API密钥未设置: {key}")
+            
+            # 添加OpenAI密钥（如果存在）
+            openai_key = os.getenv('OPENAI_API_KEY', '') or _get_from_settings('OPENAI_API_KEY')
+            if openai_key:
+                ai_key_mappings['OPENAI_API_KEY'] = openai_key
+                logger.info("🔑 使用环境变量中的OpenAI API密钥")
+            
+            logger.info("🔍 API密钥映射配置完成")
             
             # 设置有效的API密钥到环境变量
             logger.info("🔍 开始设置AI API密钥到子进程环境变量...")
@@ -421,6 +429,41 @@ test("AI自动化测试", async ({{
 
             logger.info(f"执行命令: {' '.join(command)}")
             logger.info(f"工作目录: {self.playwright_workspace}")
+            
+            # 透传Mock相关环境变量，保障前端能切换到mock配置
+            for k in [
+                'AI_MOCK_MODE',
+                'MIDSCENE_MOCK_BASE_URL',
+                'MOCK_API_KEY'
+            ]:
+                v = os.getenv(k)
+                if v is not None:
+                    env[k] = v
+                    logger.info(f"  透传环境变量: {k}={v}")
+
+            # 如果所有关键密钥均无效，强制回落到 Mock 模式，保障页面一次点击即可跑通
+            def _valid(k: str, v: str) -> bool:
+                if not v or not v.strip():
+                    return False
+                if k in ['QWEN_API_KEY', 'QWEN_VL_API_KEY', 'DEEPSEEK_API_KEY']:
+                    return v.startswith('sk-') and len(v) > 30
+                if k == 'GLM_API_KEY':
+                    return '.' in v and len(v) > 40
+                if k == 'OPENAI_API_KEY':
+                    return (v.startswith('sk-') or v.startswith('sk-proj-')) and len(v) > 30
+                return True
+
+            keys_to_check = ['QWEN_VL_API_KEY','QWEN_API_KEY','GLM_API_KEY','DEEPSEEK_API_KEY','OPENAI_API_KEY']
+            has_any_valid = any(_valid(k, env.get(k, '')) for k in keys_to_check)
+            if not has_any_valid:
+                env['AI_MOCK_MODE'] = env.get('AI_MOCK_MODE', 'true') or 'true'
+                logger.warning('⚠️ 未检测到任何有效AI密钥，已自动启用 Mock 模式 (AI_MOCK_MODE=true)')
+
+            # 在启动前执行通道预检，强制选择一个连通的Provider，确保Midscene不会误选
+            selected_provider = await self._probe_and_select_provider(env)
+            if selected_provider:
+                env['MIDSCENE_FORCE_PROVIDER'] = selected_provider
+                logger.info(f"✅ 预检成功，强制选择Provider: {selected_provider}")
 
             # 详细的环境变量调试日志
             logger.info("🔍 Playwright执行环境调试 - 环境变量检查:")
@@ -577,6 +620,70 @@ test("AI自动化测试", async ({{
         except Exception as e:
             logger.error(f"运行Playwright测试失败: {str(e)}")
             raise
+
+    async def _probe_and_select_provider(self, env: Dict[str, str]) -> Optional[str]:
+        """依次预检通道(Qwen→GLM→DeepSeek→UI-TARS→OpenAI)，返回第一个可用的provider标识。
+
+        返回值: 'qwen' | 'glm' | 'deepseek' | 'uitars' | 'openai' | None
+        """
+        try:
+            candidates: List[Dict[str, str]] = []
+
+            def add_candidate(name: str, key_name: str, base_url: str, model: str):
+                api_key = env.get(key_name)
+                if api_key and api_key.strip():
+                    candidates.append({
+                        'name': name,
+                        'key_name': key_name,
+                        'api_key': api_key,
+                        'base_url': base_url.rstrip('/'),
+                        'model': model
+                    })
+
+            # 构建候选列表（按优先级）
+            # 统一为：Qwen-VL → GLM-4V → DeepSeek(chat) → UI-TARS → OpenAI
+            add_candidate('qwen', 'QWEN_VL_API_KEY', settings.QWEN_VL_BASE_URL, settings.QWEN_VL_MODEL)
+            add_candidate('glm', 'GLM_API_KEY', settings.GLM_BASE_URL, settings.GLM_MODEL)
+            add_candidate('deepseek', 'DEEPSEEK_API_KEY', settings.DEEPSEEK_BASE_URL, 'deepseek-chat')
+            add_candidate('uitars', 'UI_TARS_API_KEY', settings.UI_TARS_BASE_URL, settings.UI_TARS_MODEL)
+            add_candidate('openai', 'OPENAI_API_KEY', settings.OPENAI_BASE_URL, settings.OPENAI_MODEL)
+
+            if not candidates:
+                logger.warning("通道预检: 未发现任何可用密钥，跳过预检")
+                return None
+
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                for c in candidates:
+                    # 统一使用 chat/completions 测试
+                    url = f"{c['base_url']}/chat/completions"
+                    headers = {
+                        'Authorization': f"Bearer {c['api_key']}",
+                        'Content-Type': 'application/json'
+                    }
+                    # DashScope 兼容层可禁用SSE
+                    if 'dashscope.aliyuncs.com' in c['base_url']:
+                        headers['X-DashScope-SSE'] = 'disable'
+
+                    payload = {
+                        'model': c['model'],
+                        'messages': [{ 'role': 'user', 'content': 'ping' }],
+                        'max_tokens': 5
+                    }
+                    try:
+                        async with session.post(url, headers=headers, json=payload) as resp:
+                            text = await resp.text()
+                            if resp.status == 200:
+                                logger.info(f"通道预检: {c['name']} 可用 ({resp.status})")
+                                return c['name']
+                            else:
+                                logger.warning(f"通道预检: {c['name']} 不可用 HTTP {resp.status}: {text[:120]}")
+                    except Exception as e:
+                        logger.warning(f"通道预检: {c['name']} 请求失败: {e}")
+
+            return None
+        except Exception as e:
+            logger.warning(f"通道预检失败(忽略): {e}")
+            return None
 
     def _extract_report_path(self, stdout_lines: List[str]) -> Optional[str]:
         """从stdout中提取报告文件路径"""

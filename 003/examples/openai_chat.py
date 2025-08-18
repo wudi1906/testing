@@ -1,8 +1,9 @@
 # Please install OpenAI SDK first: `pip3 install openai`
 
 from openai import OpenAI
+import os
 
-client = OpenAI(api_key="sk-df84fdd419bc469ab8c0f868f4f86374", base_url="https://api.deepseek.com/v1")
+client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY", ""), base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"))
 
 response = client.chat.completions.create(
     model="deepseek-chat",

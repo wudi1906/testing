@@ -124,7 +124,7 @@ async def view_report_html(execution_id: str):
         raise HTTPException(status_code=500, detail=f"查看测试报告失败: {str(e)}")
 
 
-@router.get("/script/{script_id}/latest")
+@router.get("/script/{script_id}/check")
 async def check_latest_report_by_script_id(script_id: str):
     """检查脚本是否有最新的测试报告"""
     try:

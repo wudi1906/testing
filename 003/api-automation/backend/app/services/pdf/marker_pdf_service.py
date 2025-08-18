@@ -110,9 +110,9 @@ class MarkerPdfService:
                 "use_llm": False,
                 "disable_image_extraction": True,
                 "llm_service": "marker.services.openai.OpenAIService",
-                "openai_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-                "openai_model": "qwen-vl-max-latest",
-                "openai_api_key": "sk-b34ccd05c8bb4990b4f0ea05c450589b"
+                "openai_base_url": os.getenv("MARKER_OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+                "openai_model": os.getenv("MARKER_OPENAI_MODEL", "qwen-vl-max-latest"),
+                "openai_api_key": os.getenv("MARKER_OPENAI_API_KEY", "")
             }
     
     async def extract_pdf_content(self, file_path: Path) -> str:

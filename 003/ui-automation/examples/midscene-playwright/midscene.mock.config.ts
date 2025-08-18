@@ -1,17 +1,18 @@
-import { defineConfig } from '@midscene/web';
+// 不使用 defineConfig，直接导出对象，避免命名导出报错
+declare const process: any;
 
 /**
  * Midscene.js 模拟配置文件
  * 用于在API密钥无效时进行功能测试
  */
-export default defineConfig({
+const mockConfig = {
   /**
    * 模拟AI模型配置 - 不需要真实API密钥
    */
   aiModel: {
     provider: 'mock',
-    apiKey: 'mock-api-key-for-testing',
-    baseURL: 'http://localhost:8000/api/v1/mock/ai',
+    apiKey: process.env.MOCK_API_KEY || 'mock-api-key-for-testing',
+    baseURL: process.env.MIDSCENE_MOCK_BASE_URL || 'http://localhost:8000/api/v1/mock/ai',
     model: 'mock-ui-model'
   },
 
@@ -70,4 +71,6 @@ export default defineConfig({
     // 模拟成功率（0-1）
     successRate: 0.9
   }
-});
+};
+
+export default mockConfig as any;

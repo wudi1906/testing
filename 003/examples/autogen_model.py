@@ -2,10 +2,11 @@ import asyncio
 
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_core.models import UserMessage, SystemMessage, ModelFamily
+import os
 openai_model_client = OpenAIChatCompletionClient(
-    model="deepseek-chat",
-    base_url="https://api.deepseek.com/v1",
-    api_key="sk-df84fdd419bc469ab8c0f868f4f86374",
+    model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
+    base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
+    api_key=os.getenv("DEEPSEEK_API_KEY", ""),
     model_info={
         "vision": False,
         "function_calling": True,

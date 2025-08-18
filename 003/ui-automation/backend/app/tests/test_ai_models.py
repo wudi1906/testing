@@ -23,7 +23,7 @@ class AIModelTester:
         return {
             "qwen_vl": {
                 "name": "阿里通义千问视觉版 (推荐 - 视觉任务最佳)",
-                "api_key": getattr(settings, 'QWEN_VL_API_KEY', 'sk-d20e5a88d7ec47ed8ad29be76b2e6a92'),
+                "api_key": getattr(settings, 'QWEN_VL_API_KEY', ''),
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "model": "qwen-vl-plus",
                 "provider": "openai-compatible",
@@ -33,7 +33,7 @@ class AIModelTester:
             },
             "qwen": {
                 "name": "阿里通义千问文本版",
-                "api_key": getattr(settings, 'QWEN_API_KEY', 'sk-d20e5a88d7ec47ed8ad29be76b2e6a92'),
+                "api_key": getattr(settings, 'QWEN_API_KEY', ''),
                 "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                 "model": "qwen-plus",
                 "provider": "openai-compatible",
@@ -43,7 +43,7 @@ class AIModelTester:
             },
             "glm_4v": {
                 "name": "智谱AI GLM-4V (备选 - 性能优秀)",
-                "api_key": getattr(settings, 'GLM_API_KEY', '5aabdaa2fbeace92e1f74b01df094b3e.0JZUdOjPZsE3kXU7'),
+                "api_key": getattr(settings, 'GLM_API_KEY', ''),
                 "base_url": "https://open.bigmodel.cn/api/paas/v4",
                 "model": "glm-4v",
                 "provider": "openai-compatible",
@@ -53,7 +53,7 @@ class AIModelTester:
             },
             "deepseek_vl": {
                 "name": "DeepSeek VL (文本+视觉高性价比)",
-                "api_key": getattr(settings, 'DEEPSEEK_API_KEY', 'sk-04d0650a86124b31be03bb6c7bbaa036'),
+                "api_key": getattr(settings, 'DEEPSEEK_API_KEY', ''),
                 "base_url": "https://api.deepseek.com/v1",
                 "model": "deepseek-vl",
                 "provider": "openai-compatible",
@@ -63,7 +63,7 @@ class AIModelTester:
             },
             "deepseek_chat": {
                 "name": "DeepSeek Chat (纯文本高性价比)",
-                "api_key": getattr(settings, 'DEEPSEEK_API_KEY', 'sk-04d0650a86124b31be03bb6c7bbaa036'),
+                "api_key": getattr(settings, 'DEEPSEEK_API_KEY', ''),
                 "base_url": "https://api.deepseek.com/v1",
                 "model": "deepseek-chat",
                 "provider": "openai-compatible",
@@ -73,7 +73,7 @@ class AIModelTester:
             },
             "ui_tars": {
                 "name": "豆包 UI-TARS (UI自动化专用)",
-                "api_key": getattr(settings, 'UI_TARS_API_KEY', '0e61f6f0-a97b-47c6-a56c-6e6d37a8eaa1'),
+                "api_key": getattr(settings, 'UI_TARS_API_KEY', ''),
                 "base_url": "https://ark.cn-beijing.volces.com/api/v3",
                 "model": "doubao-1-5-ui-tars-250428",
                 "provider": "openai-compatible",

@@ -255,10 +255,11 @@ class NetworkDiagnostic:
             "passwall_impact": await self.test_passwall_impact(),
         }
         
-        # 针对性测试主要API
+        # 针对性测试主要API（密钥仅从环境变量读取）
+        import os
         main_apis = {
-            "qwen": ("https://dashscope.aliyuncs.com", "sk-d20e5a88d7ec47ed8ad29be76b2e6a92"),
-            "deepseek": ("https://api.deepseek.com", "sk-04d0650a86124b31be03bb6c7bbaa036")
+            "qwen": ("https://dashscope.aliyuncs.com", os.getenv("QWEN_API_KEY", "")),
+            "deepseek": ("https://api.deepseek.com", os.getenv("DEEPSEEK_API_KEY", ""))
         }
         
         diagnosis["api_tests"] = {}

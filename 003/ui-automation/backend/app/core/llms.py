@@ -82,12 +82,28 @@ def get_glm_model_client() -> OpenAIChatCompletionClient:
     return _glm_model_client
 
 def get_uitars_model_client() -> OpenAIChatCompletionClient:
-    """获取UI-TARS客户端 - 豆包UI自动化专用（当前不可用）"""
+    """获取UI-TARS客户端 - 豆包UI自动化专用"""
     global _uitars_model_client
     if _uitars_model_client is None:
-        logger.warning("⚠️ UI-TARS客户端当前不可用，使用备用模型")
-        # 使用QWen-VL作为备用
-        return get_qwenvl_model_client()
+        try:
+            logger.info("🎯 初始化UI-TARS客户端 - 豆包UI自动化专用")
+            _uitars_model_client = OpenAIChatCompletionClient(
+                model=settings.UI_TARS_MODEL,
+                api_key=settings.UI_TARS_API_KEY,
+                base_url=settings.UI_TARS_BASE_URL,
+                model_info={
+                    "vision": True,
+                    "function_calling": True,
+                    "json_output": True,
+                    "structured_output": True,
+                    "family": "doubao",
+                    "multiple_system_messages": True
+                }
+            )
+            logger.info("✅ UI-TARS客户端初始化成功")
+        except Exception as e:
+            logger.warning(f"⚠️ UI-TARS客户端初始化失败: {str(e)}，使用QWen-VL备用")
+            return get_qwenvl_model_client()
     return _uitars_model_client
 
 # 智能模型选择器
@@ -127,6 +143,19 @@ def get_optimal_model_for_task(task_type: str) -> OpenAIChatCompletionClient:
     
     logger.info(f"🎯 任务类型: {task_type} -> 选择模型: {model_name}")
     return selected_model_fn()
+
+# 模型配置状态检查函数
+def get_model_config_status() -> Dict[str, bool]:
+    """获取所有AI模型的配置状态"""
+    return {
+        "qwen_vl": bool(settings.QWEN_VL_API_KEY and settings.QWEN_VL_API_KEY.strip() and not settings.QWEN_VL_API_KEY.startswith('your-')),
+        "qwen": bool(settings.QWEN_API_KEY and settings.QWEN_API_KEY.strip() and not settings.QWEN_API_KEY.startswith('your-')),
+        "glm": bool(settings.GLM_API_KEY and settings.GLM_API_KEY.strip() and not settings.GLM_API_KEY.startswith('your-')),
+        "deepseek": bool(settings.DEEPSEEK_API_KEY and settings.DEEPSEEK_API_KEY.strip() and not settings.DEEPSEEK_API_KEY.startswith('your-')),
+        "uitars": bool(settings.UI_TARS_API_KEY and settings.UI_TARS_API_KEY.strip() and not settings.UI_TARS_API_KEY.startswith('your-')),
+        "openai": bool(settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.strip() and not settings.OPENAI_API_KEY.startswith('your-')),
+        "gemini": bool(settings.GEMINI_API_KEY and settings.GEMINI_API_KEY.strip() and not settings.GEMINI_API_KEY.startswith('your-'))
+    }
 
 # 向后兼容的模型获取函数
 def get_model_client(model_type: str = "auto") -> OpenAIChatCompletionClient:

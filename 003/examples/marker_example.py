@@ -7,6 +7,7 @@ from marker.output import text_from_rendered
 from marker.processors.llm.llm_image_description import LLMImageDescriptionProcessor
 from marker.processors.llm.llm_meta import LLMSimpleBlockMetaProcessor
 from marker.services.openai import OpenAIService
+import os
 # llm_service = OpenAIService({"openai_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "openai_model": "qwen-vl-max-latest", "openai_api_key": "sk-9d64fad24f9e402c81e99add13cfae97"})
 
 config={
@@ -15,9 +16,9 @@ config={
     "use_llm": True,
     "disable_image_extraction": True,
     "llm_service": "marker.services.openai.OpenAIService",
-    "openai_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    "openai_model": "qwen-vl-max-latest",
-    "openai_api_key": "sk-b34ccd05c8bb4990b4f0ea05c450589b"
+    "openai_base_url": os.getenv("MARKER_OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    "openai_model": os.getenv("MARKER_OPENAI_MODEL", "qwen-vl-max-latest"),
+    "openai_api_key": os.getenv("MARKER_OPENAI_API_KEY", "")
 }
 
 config_parser = ConfigParser(config)
