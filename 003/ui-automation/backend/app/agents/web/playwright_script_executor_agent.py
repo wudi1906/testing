@@ -14,6 +14,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
 import aiohttp
+import json as _json
 
 from autogen_core import message_handler, type_subscription, MessageContext
 from loguru import logger
@@ -47,6 +48,151 @@ class PlaywrightExecutorAgent(BaseAgent):
 
         logger.info(f"Playwright执行智能体初始化完成: {self.agent_name}")
         logger.info(f"执行环境路径: {self.playwright_workspace}")
+
+        # AdsPower 集成开关（只使用指纹浏览器，不回退本地Chromium）
+        self.force_adspower_only = os.getenv("FORCE_ADSPOWER_ONLY", "true").lower() == "true"
+        # AdsPower 默认本地服务域名按官方为 local.adspower.net
+        self.adsp_base_url = os.getenv("ADSP_BASE_URL", "http://local.adspower.net:50325")
+        self.adsp_token = os.getenv("ADSP_TOKEN", os.getenv("ADSP_POWER_TOKEN", ""))
+        self.adsp_token_param = os.getenv("ADSP_TOKEN_PARAM", "token")
+        self.adsp_profile_id = None
+        self.adsp_delete_on_exit = os.getenv("ADSP_DELETE_PROFILE_ON_EXIT", "false").lower() == "true"
+        self.adsp_ua_auto = os.getenv("ADSP_UA_AUTO", "true").lower() != "false"
+        self.adsp_ua_min = int(os.getenv("ADSP_UA_MIN_VERSION", "138"))
+        self.adsp_device = os.getenv("ADSP_DEVICE", "desktop")  # desktop/mobile
+        self.adsp_fp_raw = os.getenv("ADSP_FP_CONFIG_JSON", "")
+        # 批次/分组缓存
+        self.batch_id_env_keys = ["EXECUTION_BATCH_ID", "BATCH_ID", "ADSP_BATCH_ID"]
+        self.group_cache_file = (self.playwright_workspace / "adspower_groups.json")
+        self.adsp_group_required = os.getenv("ADSP_GROUP_REQUIRED", "false").lower() == "true"
+        # 路径/字段覆盖与调试
+        self.adsp_group_list_path = os.getenv("ADSP_GROUP_LIST_PATH", "").strip()
+        self.adsp_group_create_path = os.getenv("ADSP_GROUP_CREATE_PATH", "").strip()
+        self.adsp_user_create_path = os.getenv("ADSP_USER_CREATE_PATH", "").strip()
+        self.adsp_browser_start_path = os.getenv("ADSP_BROWSER_START_PATH", "").strip()
+        self.adsp_group_name_key = os.getenv("ADSP_GROUP_CREATE_NAME_KEY", "").strip()
+        self.adsp_user_name_key = os.getenv("ADSP_USER_CREATE_NAME_KEY", "").strip()
+        self.adsp_group_key_override = os.getenv("ADSP_GROUP_KEY", "").strip()
+        self.adsp_proxy_key_override = os.getenv("ADSP_PROXY_KEY", "").strip()
+        self.adsp_fp_key_override = os.getenv("ADSP_FP_KEY", "").strip()
+        self.adsp_prefer_v1 = os.getenv("ADSP_PREFER_V1", "false").lower() == "true"
+        self.adsp_verbose = os.getenv("ADSP_VERBOSE_LOG", "false").lower() == "true"
+        self.adsp_rate_delay_ms = int(os.getenv("ADSP_RATE_LIMIT_DELAY_MS", "1200"))
+
+        # 加载本地非敏感配置（可持久化，无需每次设置）
+        try:
+            self._load_adspower_local_config()
+        except Exception as e:
+            logger.warning(f"加载 AdsPower 本地配置失败（忽略继续）: {e}")
+
+        # 读取可选 proxyid（优先环境变量，其次本地配置在 _load_adspower_local_config 中）
+        self.adsp_proxy_id: Optional[object] = None
+        pid_env = os.getenv("ADSP_PROXY_ID") or os.getenv("ADSP_PROXYID")
+        if pid_env:
+            try:
+                self.adsp_proxy_id = int(pid_env)
+            except Exception:
+                self.adsp_proxy_id = pid_env
+
+        # AdsPower 并发限流（同进程内最大并发窗口数）
+        if not hasattr(PlaywrightExecutorAgent, "adsp_semaphore"):
+            try:
+                max_conc = int(os.getenv("ADSP_MAX_CONCURRENCY", "15"))
+            except Exception:
+                max_conc = 15
+            PlaywrightExecutorAgent.adsp_max_concurrency = max_conc
+            PlaywrightExecutorAgent.adsp_semaphore = asyncio.Semaphore(max_conc)
+        self._adsp_slot_acquired: bool = False
+
+    def _load_adspower_local_config(self) -> None:
+        """从工作空间下的 adspower.local.json 读取非敏感配置，覆盖默认值。
+        仅允许覆盖非敏感项：接口路径/字段名/日志与优先级/退避间隔。
+        敏感项（Token/青果认证信息）只允许通过环境变量传入。
+        文件位置：<playwright_workspace>/adspower.local.json
+        示例：
+        {
+          "prefer_v1": true,
+          "verbose": true,
+          "rate_limit_delay_ms": 1500,
+          "paths": {
+            "group_list": "/api/v1/group/list",
+            "group_create": "/api/v1/group/create",
+            "user_create": "/api/v1/user/create",
+            "browser_start": "/api/v1/browser/start"
+          },
+          "fields": {
+            "group_name_key": "group_name",
+            "user_name_key": "user_name",
+            "group_key": "group_id",
+            "proxy_key": "user_proxy_config",
+            "fp_key": "fingerprint_config"
+          }
+        }
+        """
+        cfg_path = self.playwright_workspace / "adspower.local.json"
+        if not cfg_path.exists():
+            return
+        raw = cfg_path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        # 优先级/日志/退避
+        if isinstance(data.get("prefer_v1"), bool):
+            self.adsp_prefer_v1 = data["prefer_v1"]
+        if isinstance(data.get("verbose"), bool):
+            self.adsp_verbose = data["verbose"]
+        if isinstance(data.get("rate_limit_delay_ms"), int):
+            self.adsp_rate_delay_ms = data["rate_limit_delay_ms"]
+        # 路径
+        paths = data.get("paths") or {}
+        if isinstance(paths.get("group_list"), str) and not self.adsp_group_list_path:
+            self.adsp_group_list_path = paths["group_list"].strip()
+        if isinstance(paths.get("group_create"), str) and not self.adsp_group_create_path:
+            self.adsp_group_create_path = paths["group_create"].strip()
+        if isinstance(paths.get("user_create"), str) and not self.adsp_user_create_path:
+            self.adsp_user_create_path = paths["user_create"].strip()
+        if isinstance(paths.get("browser_start"), str) and not self.adsp_browser_start_path:
+            self.adsp_browser_start_path = paths["browser_start"].strip()
+        # 字段
+        fields = data.get("fields") or {}
+        if isinstance(fields.get("group_name_key"), str) and not self.adsp_group_name_key:
+            self.adsp_group_name_key = fields["group_name_key"].strip()
+        if isinstance(fields.get("user_name_key"), str) and not self.adsp_user_name_key:
+            self.adsp_user_name_key = fields["user_name_key"].strip()
+        if isinstance(fields.get("group_key"), str) and not self.adsp_group_key_override:
+            self.adsp_group_key_override = fields["group_key"].strip()
+        if isinstance(fields.get("proxy_key"), str) and not self.adsp_proxy_key_override:
+            self.adsp_proxy_key_override = fields["proxy_key"].strip()
+        if isinstance(fields.get("fp_key"), str) and not self.adsp_fp_key_override:
+            self.adsp_fp_key_override = fields["fp_key"].strip()
+        # 读取可选 proxyid 与并发上限（仅当未由环境变量设置时）
+        if self.adsp_proxy_id is None:
+            proxyid_val = data.get("proxyid")
+            if proxyid_val is not None:
+                try:
+                    self.adsp_proxy_id = int(proxyid_val)
+                except Exception:
+                    self.adsp_proxy_id = proxyid_val
+        max_conc_cfg = data.get("max_concurrency")
+        if isinstance(max_conc_cfg, int) and hasattr(PlaywrightExecutorAgent, "adsp_semaphore"):
+            # 仅在类属性已初始化的情况下调整阈值
+            PlaywrightExecutorAgent.adsp_max_concurrency = max_conc_cfg
+
+    # ====== 辅助：日志与脱敏 ======
+    def _mask(self, value: Optional[str], keep: int = 2) -> str:
+        try:
+            if not value:
+                return ""
+            v = str(value)
+            if len(v) <= keep:
+                return "*" * len(v)
+            return v[:keep] + "***"
+        except Exception:
+            return "***"
+
+    def _snippet(self, text: str, limit: int = 200) -> str:
+        try:
+            return text[:limit]
+        except Exception:
+            return ""
 
     def _validate_workspace(self) -> bool:
         """验证Playwright工作空间是否存在且配置正确"""
@@ -244,6 +390,573 @@ class PlaywrightExecutorAgent(BaseAgent):
                 "error_message": str(e),
                 "duration": 0.0
             }
+        finally:
+            # 关闭 AdsPower 窗口，按需回收资源
+            try:
+                await self._adspower_teardown()
+            except Exception as _e:
+                logger.warning(f"执行结束后的 AdsPower 清理异常: {_e}")
+
+    async def _prepare_adspower_with_proxy(self) -> Optional[str]:
+        """获取青果代理 → 创建/更新 AdsPower Profile → 启动 → 返回 wsEndpoint。
+        要求：FORCE_ADSPOWER_ONLY=true 时，失败抛异常；否则返回 None。
+        """
+        try:
+            # 并发限流：最多同时 N 个窗口
+            await PlaywrightExecutorAgent.adsp_semaphore.acquire()
+            self._adsp_slot_acquired = True
+            if self.adsp_verbose:
+                logger.info(f"[ADSP concurrency] acquired 1 slot, in_use={PlaywrightExecutorAgent.adsp_max_concurrency - PlaywrightExecutorAgent.adsp_semaphore._value}/{PlaywrightExecutorAgent.adsp_max_concurrency}")
+
+            if not self.adsp_token:
+                logger.warning("未配置 ADSP_TOKEN，跳过 AdsPower")
+                return None
+
+            # 1) 取青果代理（若提供）
+            qg_endpoint = os.getenv("QG_TUNNEL_ENDPOINT", "tun-szbhry.qg.net:17790").strip()
+            qg_authkey = os.getenv("QG_AUTHKEY", "").strip()
+            qg_authpwd = os.getenv("QG_AUTHPWD", "").strip()
+            proxy_conf: Optional[Dict[str, Any]] = None
+            if qg_endpoint:
+                # 解析 host:port
+                host = qg_endpoint
+                port = None
+                if ':' in qg_endpoint:
+                    host, port = qg_endpoint.split(':', 1)
+                try:
+                    port = int(port) if port else 0
+                except Exception:
+                    port = 0
+                proxy_conf = {
+                    "proxy_type": "http",
+                    "proxy_address": f"{host}:{port}" if port else host,
+                    "proxy_host": host,
+                    "proxy_port": port,
+                }
+                if qg_authkey and qg_authpwd:
+                    proxy_conf.update({
+                        "proxy_username": qg_authkey,
+                        "proxy_password": qg_authpwd,
+                    })
+                masked = f"http://{qg_authkey or ''}:{'***' if qg_authpwd else ''}@{qg_endpoint}"
+                logger.info(f"🧩 使用青果隧道代理: {masked}")
+
+            headers = {
+                "Content-Type": "application/json",
+                # 兼容不同版本：有的用 Bearer，有的用 X-API-KEY
+                "Authorization": f"Bearer {self.adsp_token}",
+                "X-API-KEY": self.adsp_token,
+            }
+            if self.adsp_verbose:
+                logger.info(f"[ADSP cfg] base_url={self.adsp_base_url} token={self._mask(self.adsp_token, 4)} prefer_v1={self.adsp_prefer_v1} verbose={self.adsp_verbose} rate_delay_ms={self.adsp_rate_delay_ms}")
+            async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
+                # 0) 计算/获取 batchId 与对应的分组ID
+                batch_id = None
+                for k in self.batch_id_env_keys:
+                    v = os.getenv(k)
+                    if v:
+                        batch_id = v
+                        break
+                if not batch_id:
+                    # 若前端没传，自动生成批次ID
+                    batch_id = f"batch_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                    os.environ["EXECUTION_BATCH_ID"] = batch_id
+                group_id = await self._ensure_adspower_group(session, batch_id)
+                if self.adsp_verbose:
+                    logger.info(f"[ADSP group] batch_id={batch_id} group_id={group_id or '<none>'}")
+                # 2) 创建或更新 Profile（这里简化为创建）
+                # 设备与UA策略：强制桌面端，开启 ua_auto（最低版本控制通过 min_version）
+                fp_cfg = {
+                    "language": "zh-CN",
+                    "timezone": "Asia/Shanghai",
+                    "device_type": "desktop",
+                    "ua_auto": True,
+                    "ua_min_version": max(self.adsp_ua_min, 138),
+                    "screen_resolution": "1920x1080",
+                    "screen_width": 1920,
+                    "screen_height": 1080,
+                    "platform": "Win32",
+                }
+                # 用户自定义覆盖
+                if self.adsp_fp_raw:
+                    try:
+                        fp_user = json.loads(self.adsp_fp_raw)
+                        fp_cfg.update(fp_user)
+                    except Exception:
+                        logger.warning("ADSP_FP_CONFIG_JSON 无法解析，忽略")
+                # 仅使用 v1 user/create
+                create_candidates = []
+                if self.adsp_user_create_path:
+                    create_candidates.append({
+                        "path": self.adsp_user_create_path,
+                        "name_keys": [self.adsp_user_name_key] if self.adsp_user_name_key else ["user_name", "name"],
+                        "group_keys": [self.adsp_group_key_override] if self.adsp_group_key_override else ["group_id"],
+                        "proxy_keys": [self.adsp_proxy_key_override] if self.adsp_proxy_key_override else ["user_proxy_config", "proxy"],
+                        "fp_keys": [self.adsp_fp_key_override] if self.adsp_fp_key_override else ["fingerprint_config", "fingerprint"],
+                    })
+                if not create_candidates:
+                    create_candidates = [{
+                        "path": "/api/v1/user/create",
+                        "name_keys": ["user_name", "name"],
+                        "group_keys": ["group_id"],
+                        "proxy_keys": ["user_proxy_config", "proxy"],
+                        "fp_keys": ["fingerprint_config", "fingerprint"]
+                    }]
+
+                created = False
+                for cand in create_candidates:
+                    try:
+                        url = f"{self.adsp_base_url}{cand['path']}?{self.adsp_token_param}={self.adsp_token}"
+                        # 组合尝试 name/proxy/fingerprint 的不同键名
+                        for name_key in cand["name_keys"]:
+                            for proxy_key in cand["proxy_keys"]:
+                                for fp_key in cand["fp_keys"]:
+                                    # 基础 payload
+                                    payload_base = {
+                                        name_key: f"ui-auto-{batch_id}-{uuid.uuid4().hex[:6]}"
+                                    }
+                                    # v2常见要求 email 字段
+                                    if cand['path'].startswith('/api/v2/user/create'):
+                                        payload_base.setdefault('email', f"auto_{uuid.uuid4().hex[:8]}@example.com")
+                                        payload_base.setdefault('password', uuid.uuid4().hex[:12])
+                                    if group_id:
+                                        for gk in cand["group_keys"]:
+                                            payload_base[gk] = group_id
+
+                                    # 生成多种代理形态
+                                    proxy_variants = []
+                                    # 如果提供了 proxyid，则优先走 proxyid 直连（更稳）
+                                    if self.adsp_proxy_id is not None:
+                                        proxy_variants.append({ 'proxyid': self.adsp_proxy_id })
+                                    host = (proxy_conf or {}).get('proxy_host') if isinstance(proxy_conf, dict) else None
+                                    port = (proxy_conf or {}).get('proxy_port') if isinstance(proxy_conf, dict) else None
+                                    username = (proxy_conf or {}).get('proxy_username') if isinstance(proxy_conf, dict) else None
+                                    password = (proxy_conf or {}).get('proxy_password') if isinstance(proxy_conf, dict) else None
+                                    address = (proxy_conf or {}).get('proxy_address') if isinstance(proxy_conf, dict) else None
+                                    proxy_url = None
+                                    if host and port:
+                                        proxy_url = f"http://{host}:{port}"
+                                        if username and password:
+                                            proxy_url = f"http://{username}:{password}@{host}:{port}"
+                                    elif address:
+                                        proxy_url = f"http://{address}"
+                                        if username and password:
+                                            proxy_url = f"http://{username}:{password}@{address}"
+
+                                    # 优先：v1 常见格式（user_proxy_config 包含 proxy_soft/proxy_type/proxy）
+                                    if proxy_key == 'user_proxy_config':
+                                        # 无 scheme
+                                        if host and port:
+                                            addr_no_scheme = f"{host}:{port}"
+                                            if username and password:
+                                                addr_no_scheme = f"{username}:{password}@{host}:{port}"
+                                            proxy_variants.append({
+                                                proxy_key: {
+                                                    "proxy_soft": "other",
+                                                    "proxy_type": "http",
+                                                    "proxy": addr_no_scheme
+                                                }
+                                            })
+                                        # 有 scheme
+                                        if proxy_url:
+                                            proxy_variants.append({
+                                                proxy_key: {
+                                                    "proxy_soft": "other",
+                                                    "proxy_type": "http",
+                                                    "proxy": proxy_url
+                                                }
+                                            })
+
+                                    # 次优先：对象结构（proxy_* 键）
+                                    if proxy_conf and proxy_key != 'proxy':
+                                        variant2 = {
+                                            proxy_key: {
+                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
+                                                "proxy_host": host,
+                                                "proxy_port": port,
+                                                "proxy_username": username,
+                                                "proxy_password": password,
+                                            }
+                                        }
+                                        for rk in list(variant2[proxy_key].keys()):
+                                            if variant2[proxy_key][rk] is None:
+                                                del variant2[proxy_key][rk]
+                                        if variant2[proxy_key]:
+                                            proxy_variants.append(variant2)
+
+                                        # 变体：使用 proxy_user 字段名（部分版本要求）
+                                        variant2b = {
+                                            proxy_key: {
+                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
+                                                "proxy_host": host,
+                                                "proxy_port": port,
+                                                "proxy_user": username,
+                                                "proxy_password": password,
+                                            }
+                                        }
+                                        for rk in list(variant2b[proxy_key].keys()):
+                                            if variant2b[proxy_key][rk] is None:
+                                                del variant2b[proxy_key][rk]
+                                        if variant2b[proxy_key]:
+                                            proxy_variants.append(variant2b)
+
+                                        # 变体：在对象结构上附加 proxy_soft='other'（本地一些版本要求）
+                                        variant2c = {
+                                            proxy_key: {
+                                                "proxy_soft": "other",
+                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
+                                                "proxy_host": host,
+                                                "proxy_port": port,
+                                                "proxy_user": username if username is not None else None,
+                                                "proxy_password": password if password is not None else None,
+                                            }
+                                        }
+                                        # 清理 None
+                                        for rk in list(variant2c[proxy_key].keys()):
+                                            if variant2c[proxy_key][rk] is None:
+                                                del variant2c[proxy_key][rk]
+                                        if variant2c[proxy_key]:
+                                            proxy_variants.append(variant2c)
+
+                                    # 备选：对象结构（通用键）
+                                    if proxy_conf and proxy_key != 'proxy':
+                                        variant1 = {
+                                            proxy_key: {
+                                                "type": (proxy_conf or {}).get('proxy_type', 'http'),
+                                                "host": host,
+                                                "port": port,
+                                                "username": username,
+                                                "password": password,
+                                            }
+                                        }
+                                        for rk in list(variant1[proxy_key].keys()):
+                                            if variant1[proxy_key][rk] is None:
+                                                del variant1[proxy_key][rk]
+                                        if variant1[proxy_key]:
+                                            proxy_variants.append(variant1)
+
+                                    # 备选：对象结构（内含 proxy 字符串）
+                                    if proxy_url and proxy_key != 'proxy':
+                                        proxy_variants.append({ proxy_key: { "proxy_type": "http", "proxy": proxy_url } })
+                                        # 无 scheme 形式（host:port）
+                                        no_scheme = None
+                                        if host and port:
+                                            no_scheme = f"{host}:{port}"
+                                            if username and password:
+                                                no_scheme = f"{username}:{password}@{host}:{port}"
+                                        if no_scheme:
+                                            proxy_variants.append({ proxy_key: { "proxy_type": "HTTP", "proxy": no_scheme } })
+
+                                    # 备选：字符串（当 key 为 proxy）
+                                    if proxy_key == 'proxy' and proxy_url:
+                                        proxy_variants.append({ proxy_key: proxy_url })
+
+                                    # 备选：v1 另一常见格式（user_proxy_config 使用 ip/port/user/password）
+                                    if proxy_key == 'user_proxy_config' and host and port:
+                                        proxy_variants.append({
+                                            proxy_key: {
+                                                "ip": host,
+                                                "port": port,
+                                                "user": username,
+                                                "password": password
+                                            }
+                                        })
+
+                                    # 指纹配置
+                                    fp_variants = []
+                                    if fp_cfg:
+                                        fp_variants.append({ fp_key: fp_cfg })
+                                    if not fp_variants:
+                                        fp_variants.append({})
+                                    if not proxy_variants:
+                                        proxy_variants.append({})
+
+                                    # 逐一尝试，并对429/限流退避
+                                    for pv in proxy_variants:
+                                        for fv in fp_variants:
+                                            attempts = 0
+                                            while attempts < 3:
+                                                payload = { **payload_base, **pv, **fv }
+                                                async with session.post(url, json=payload) as resp:
+                                                    text = await resp.text()
+                                                    if self.adsp_verbose:
+                                                        logger.info(f"[ADSP user.create] url={url} name_key={name_key} group_keys={cand['group_keys']} proxy_key={proxy_key} fp_key={fp_key} status={resp.status} resp={self._snippet(text)} payload_keys={list(payload.keys())}")
+                                                    # BEGIN: console prints for first/last lines
+                                                    try:
+                                                        _uc_line = f"[ADSP user.create] url={url} name_key={name_key} group_keys={cand['group_keys']} proxy_key={proxy_key} fp_key={fp_key} status={resp.status} resp={self._snippet(text)} payload_keys={list(payload.keys())}"
+                                                        if '___FIRST_UC_PRINTED' not in locals():
+                                                            print(_uc_line)
+                                                            ___FIRST_UC_PRINTED = True
+                                                        ___LAST_UC_LINE = _uc_line
+                                                    except Exception:
+                                                        pass
+                                                    # END: console prints for first/last lines
+                                                    if resp.status != 200 or not text:
+                                                        attempts += 1
+                                                        if resp.status == 429:
+                                                            await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
+                                                            continue
+                                                        break
+                                                    try:
+                                                        data = _json.loads(text)
+                                                    except Exception:
+                                                        break
+                                                    code = data.get("code")
+                                                    if code not in (0, 200):
+                                                        msg_raw = data.get("msg") or text or ""
+                                                        msg = msg_raw.lower()
+                                                        if ("user_group_id is required" in msg or "group_id is required" in msg) and not group_id:
+                                                            raise RuntimeError("创建 AdsPower profile 失败: 需要有效的分组ID")
+                                                        if "too many request per second" in msg:
+                                                            attempts += 1
+                                                            await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
+                                                            if self.adsp_verbose:
+                                                                logger.info(f"[ADSP user.create] rate-limit retry attempts={attempts} wait_ms={self.adsp_rate_delay_ms}")
+                                                            continue
+                                                        # 其它错误换下一个变体
+                                                        break
+                                                    self.adsp_profile_id = data.get("data", {}).get("user_id") or data.get("data", {}).get("id")
+                                                    if self.adsp_profile_id:
+                                                        if self.adsp_verbose:
+                                                            logger.info(f"[ADSP user.create] success profile_id={self.adsp_profile_id}")
+                                                        try:
+                                                            print(f"[ADSP user.create] success profile_id={self.adsp_profile_id}")
+                                                        except Exception:
+                                                            pass
+                                                        created = True
+                                                        break
+                                                if created:
+                                                    break
+                                            if created:
+                                                break
+                                        if created:
+                                            break
+                                if created:
+                                    break
+                            if created:
+                                break
+                    except Exception:
+                        continue
+                if not created or not self.adsp_profile_id:
+                    try:
+                        if '___LAST_UC_LINE' in locals() and ___LAST_UC_LINE:
+                            print(f"[ADSP user.create LAST] {___LAST_UC_LINE}")
+                            logger.warning(f"[ADSP user.create LAST] {___LAST_UC_LINE}")
+                    except Exception:
+                        pass
+                    raise RuntimeError("创建 AdsPower profile 失败: 无法在多版本接口中成功创建")
+                # 3) 启动浏览器（仅 v1）
+                start_candidates = []
+                if self.adsp_browser_start_path:
+                    start_candidates.append(f"{self.adsp_base_url}{self.adsp_browser_start_path}?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}")
+                defaults_start = [
+                    f"{self.adsp_base_url}/api/v1/browser/start?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}"
+                ]
+                start_candidates.extend([u for u in defaults_start if u not in start_candidates])
+                ws = None
+                for start_url in start_candidates:
+                    try:
+                        async with session.get(start_url) as resp:
+                            text = await resp.text()
+                            if self.adsp_verbose:
+                                logger.info(f"[ADSP browser.start] url={start_url} status={resp.status} resp={self._snippet(text)}")
+                            if resp.status != 200 or not text:
+                                continue
+                            try:
+                                data = _json.loads(text)
+                            except Exception:
+                                continue
+                            if data.get("code") not in (0, 200):
+                                continue
+                            inner = data.get("data", {})
+                            ws = inner.get("wsUrl") or inner.get("ws_url") or inner.get("wsEndpoint")
+                            if not ws:
+                                ws_field = inner.get("ws")
+                                if isinstance(ws_field, dict):
+                                    ws = ws_field.get("puppeteer") or ws_field.get("playwright") or ws_field.get("cdp") or ws_field.get("ws")
+                            if ws:
+                                break
+                    except Exception:
+                        continue
+                if not ws:
+                    raise RuntimeError("未获得 wsEndpoint")
+                # 简单重试验证
+                for _ in range(3):
+                    if ws:
+                        return ws
+                    await asyncio.sleep(1)
+                return ws
+        except Exception as e:
+            logger.error(f"_prepare_adspower_with_proxy 失败: {e}")
+            if self.force_adspower_only:
+                raise
+            return None
+
+    async def _adspower_teardown(self):
+        """关闭 AdsPower 浏览器，按需删除 profile。"""
+        try:
+            if not self.adsp_profile_id:
+                return
+            headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.adsp_token}"}
+            async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as session:
+                # 1) stop（必须）
+                stop_url = f"{self.adsp_base_url}/api/v1/browser/stop?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}"
+                try:
+                    await session.get(stop_url)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.5)
+                # 2) delete_cache（可选，多版本兼容）
+                cache_urls = [
+                    f"{self.adsp_base_url}/api/v1/browser/delete_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                    f"{self.adsp_base_url}/api/v1/browser/clear_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                    f"{self.adsp_base_url}/api/v1/user/clear_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                ]
+                for url in cache_urls:
+                    try:
+                        await session.get(url)
+                    except Exception:
+                        continue
+                await asyncio.sleep(0.5)
+                # 3) delete（按需）
+                if self.adsp_delete_on_exit:
+                    del_variants = [
+                        f"{self.adsp_base_url}/api/v1/user/delete?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                        f"{self.adsp_base_url}/api/v1/user/delete?id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                        f"{self.adsp_base_url}/api/v1/user/delete?ids={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
+                    ]
+                    for url in del_variants:
+                        try:
+                            await session.get(url)
+                        except Exception:
+                            continue
+        except Exception as e:
+            logger.warning(f"AdsPower 资源清理失败: {e}")
+        finally:
+            # 释放并发槽位
+            try:
+                if self._adsp_slot_acquired:
+                    PlaywrightExecutorAgent.adsp_semaphore.release()
+                    self._adsp_slot_acquired = False
+                    if self.adsp_verbose:
+                        logger.info(f"[ADSP concurrency] released 1 slot, in_use={PlaywrightExecutorAgent.adsp_max_concurrency - PlaywrightExecutorAgent.adsp_semaphore._value}/{PlaywrightExecutorAgent.adsp_max_concurrency}")
+            except Exception:
+                pass
+
+    async def _ensure_adspower_group(self, session: aiohttp.ClientSession, batch_id: str) -> str:
+        """确保存在与 batchId 对应的 AdsPower 分组，返回 group_id。并在本地缓存映射。"""
+        # 0) 显式指定优先
+        env_gid = os.getenv("ADSP_USER_GROUP_ID")
+        if env_gid:
+            return env_gid
+        # 本地缓存优先
+        try:
+            cache = {}
+            if self.group_cache_file.exists():
+                cache = _json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
+            if batch_id in cache:
+                return cache[batch_id]
+        except Exception:
+            pass
+
+        # 仅使用 v1（更稳定）
+        list_paths = []
+        if self.adsp_group_list_path:
+            list_paths.append(self.adsp_group_list_path)
+        defaults = [
+            "/api/v1/group/list",
+            "/api/v1/group/getList",
+        ]
+        list_paths.extend([p for p in defaults if p not in list_paths])
+        for p in list_paths:
+            try:
+                url = f"{self.adsp_base_url}{p}?{self.adsp_token_param}={self.adsp_token}"
+                async with session.get(url) as resp:
+                    text = await resp.text()
+                    if resp.status != 200 or not text:
+                        continue
+                    try:
+                        data = _json.loads(text)
+                    except Exception:
+                        continue
+                    if data.get('code') not in (0, 200):
+                        continue
+                    groups = data.get('data', []) or data.get('list', [])
+                    for g in groups:
+                        name = g.get('name') or g.get('group_name')
+                        gid = g.get('group_id') or g.get('id')
+                        if name == batch_id:
+                            self._cache_group(batch_id, gid)
+                            return gid
+            except Exception:
+                continue
+
+        # 不存在则创建（仅 v1）
+        create_paths = []
+        if self.adsp_group_create_path:
+            create_paths.append(self.adsp_group_create_path)
+        defaults_create = [
+            "/api/v1/group/create",
+        ]
+        create_paths.extend([p for p in defaults_create if p not in create_paths])
+        for p in create_paths:
+            # 1) POST JSON 形式（字段名兼容 name / group_name）
+            for field_name in ("name", "group_name"):
+                try:
+                    url = f"{self.adsp_base_url}{p}?{self.adsp_token_param}={self.adsp_token}"
+                    use_key = self.adsp_group_name_key or field_name
+                    payload = {use_key: batch_id}
+                    async with session.post(url, json=payload) as resp:
+                        text = await resp.text()
+                        if resp.status != 200 or not text:
+                            continue
+                        try:
+                            data = _json.loads(text)
+                        except Exception:
+                            continue
+                        if data.get('code') not in (0, 200):
+                            continue
+                        gid = data.get('data', {}).get('group_id') or data.get('data', {}).get('id')
+                        if gid:
+                            self._cache_group(batch_id, gid)
+                            return gid
+                except Exception:
+                    continue
+            # 2) GET 查询参数形式（很多本地版本接口使用GET）
+            for query_key in ("name", "group_name"):
+                try:
+                    use_key = self.adsp_group_name_key or query_key
+                    url = f"{self.adsp_base_url}{p}?{self.adsp_token_param}={self.adsp_token}&{use_key}={batch_id}"
+                    async with session.get(url) as resp:
+                        text = await resp.text()
+                        if resp.status != 200 or not text:
+                            continue
+                        try:
+                            data = _json.loads(text)
+                        except Exception:
+                            continue
+                        if data.get('code') not in (0, 200):
+                            continue
+                        gid = data.get('data', {}).get('group_id') or data.get('data', {}).get('id')
+                        if gid:
+                            self._cache_group(batch_id, gid)
+                            return gid
+                except Exception:
+                    continue
+        if self.adsp_group_required:
+            raise RuntimeError("无法创建或获取 AdsPower 分组（请检查 Local API 版本与权限）")
+        # 回退：返回一个虚拟分组ID，后续创建 profile 不传 user_group_id
+        return ""
+
+    def _cache_group(self, batch_id: str, group_id: str) -> None:
+        try:
+            cache = {}
+            if self.group_cache_file.exists():
+                cache = _json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
+            cache[batch_id] = group_id
+            self.group_cache_file.write_text(_json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+        except Exception as e:
+            logger.warning(f"写入分组缓存失败: {e}")
 
     async def _create_test_file(self, execution_id: str, test_content: str,
                               config: Dict[str, Any]) -> Path:
@@ -362,6 +1075,19 @@ test("AI自动化测试", async ({{
 
             # 设置环境变量
             env = os.environ.copy()
+
+            # —— AdsPower + 青果代理：获取 wsEndpoint 并透传 ——
+            try:
+                ws_endpoint = await self._prepare_adspower_with_proxy()
+                if not ws_endpoint and self.force_adspower_only:
+                    raise RuntimeError("AdsPower wsEndpoint 获取失败，且已启用仅AdsPower模式")
+                if ws_endpoint:
+                    env["PW_TEST_CONNECT_WS_ENDPOINT"] = ws_endpoint
+                    logger.info(f"🔌 使用AdsPower浏览器会话: wsEndpoint={ws_endpoint}")
+            except Exception as e:
+                logger.error(f"AdsPower 初始化失败: {e}")
+                if self.force_adspower_only:
+                    raise
             
             # 确保关键的AI API密钥被传递到子进程（优先环境变量，其次settings.* 配置）
             from app.core.config import settings as app_settings

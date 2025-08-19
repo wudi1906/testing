@@ -8,6 +8,18 @@ import midsceneConfigMock from '../midscene.mock.config';
 
 const midsceneConfig = (process.env.AI_MOCK_MODE === 'true') ? midsceneConfigMock : midsceneConfigReal;
 
+// 如果后端通过 AdsPower 提供了 wsEndpoint，则直接连接该现有浏览器实例
+const WS_ENDPOINT = process.env.PW_TEST_CONNECT_WS_ENDPOINT || process.env.PW_WS_ENDPOINT;
+if (WS_ENDPOINT && typeof (base as any).use === 'function') {
+  (base as any).use({
+    browserName: 'chromium',
+    connectOptions: {
+      wsEndpoint: WS_ENDPOINT,
+      timeout: 60_000,
+    },
+  });
+}
+
 const HUMANIZE_LEVEL = Number(process.env.HUMANIZE_LEVEL || '1');
 const STEALTH_MODE = (process.env.STEALTH_MODE ?? 'true') !== 'false';
 
