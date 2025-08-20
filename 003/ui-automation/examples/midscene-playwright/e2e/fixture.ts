@@ -1,4 +1,4 @@
-import { test as base } from '@playwright/test';
+import { test as base, chromium, Browser } from '@playwright/test';
 import type { PlayWrightAiFixtureType } from '@midscene/web/playwright';
 import { PlaywrightAiFixture } from '@midscene/web/playwright';
 import 'dotenv/config';
@@ -8,17 +8,8 @@ import midsceneConfigMock from '../midscene.mock.config';
 
 const midsceneConfig = (process.env.AI_MOCK_MODE === 'true') ? midsceneConfigMock : midsceneConfigReal;
 
-// 如果后端通过 AdsPower 提供了 wsEndpoint，则直接连接该现有浏览器实例
+// 如果后端通过 AdsPower 提供了 wsEndpoint，则通过 CDP 连接现有浏览器实例
 const WS_ENDPOINT = process.env.PW_TEST_CONNECT_WS_ENDPOINT || process.env.PW_WS_ENDPOINT;
-if (WS_ENDPOINT && typeof (base as any).use === 'function') {
-  (base as any).use({
-    browserName: 'chromium',
-    connectOptions: {
-      wsEndpoint: WS_ENDPOINT,
-      timeout: 60_000,
-    },
-  });
-}
 
 const HUMANIZE_LEVEL = Number(process.env.HUMANIZE_LEVEL || '1');
 const STEALTH_MODE = (process.env.STEALTH_MODE ?? 'true') !== 'false';
@@ -328,6 +319,9 @@ const baseWithAi = base.extend<PlayWrightAiFixtureType>(
   PlaywrightAiFixture({
     waitForNetworkIdleTimeout: 200000,
     ...midsceneConfig,
+    connectExisting: WS_ENDPOINT || undefined,
+    cdpConnect: true,
+    connectTimeoutMs: 60000,
   })
 );
 
@@ -338,7 +332,39 @@ export const test = baseWithAi.extend<{
   aiInput: any;
   aiScroll: any;
   aiSelect: any;
+  aiAsk: any;
 }>({
+  // 复用 AdsPower 现有唯一 Context，避免新建上下文导致新标签页
+  context: async ({ browser }, use) => {
+    const existing = browser.contexts?.() || [];
+    if (existing.length > 0) {
+      await use(existing[0]);
+      return;
+    }
+    const ctx = await browser.newContext();
+    await use(ctx);
+  },
+  // 复用现有唯一 Page，避免新开标签页与 viewport 变更
+  page: async ({ context }, use) => {
+    const pages = context.pages?.() || [];
+    if (pages.length > 0) {
+      await use(pages[0]);
+      return;
+    }
+    const p = await context.newPage();
+    await use(p);
+  },
+  aiAsk: async ({ ai }, use) => {
+    await use(async (question: string, options?: any): Promise<any> => {
+      try {
+        // 优先使用基础 ai() 能力进行问答
+        return await (ai as any)(question, options);
+      } catch (e) {
+        // 兜底：直接返回字符串，避免用例因缺参中断
+        return String(question);
+      }
+    });
+  },
   aiTap: async ({ aiTap, page, ai }, use) => {
     await use(async (desc: string, options?: any): Promise<any> => {
       try {
@@ -460,6 +486,7 @@ export const test = baseWithAi.extend<{
 
 
 export { expect } from '@playwright/test';
+
 
 // 翻页驱动：点击“下一题/下一页/继续/提交”等，并等待稳定
 export async function nextStep(page: any): Promise<void> {

@@ -1,19 +1,78 @@
-﻿# Node
-**/node_modules/
-dist/
-build/
-
-# Python
-**/__pycache__/
-**/*.pyc
-**/.venv/
-**/venv*/
-
-# 运行产物
-**/logs/
-**/uploads/
-**/*.db
-
-# Secrets
+﻿# 环境配置文件（包含敏感信息）
+env-setup-local.ps1
 .env
-**/.env
+.env.local
+
+# 启动脚本（包含密钥配置）
+start-backend-fixed.ps1
+start-backend-complete.ps1
+quick-start.ps1
+CRITICAL-STARTUP-SOLUTION.ps1
+setup-secure-startup.ps1
+env-setup-template.ps1
+clean-secrets.ps1
+SECURE-SETUP-README.md
+SOLUTION-SUMMARY.md
+
+# Node modules
+**/node_modules/
+
+# 虚拟环境目录
+venv_*/
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 日志文件
+*.log
+logs/
+
+# 数据库文件
+*.db
+*.sqlite
+
+# 临时文件
+*.tmp
+*.temp
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 上传文件
+uploads/
+screenshots/
+static/temp/

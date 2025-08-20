@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+import asyncio
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -15,6 +16,7 @@ from app.models.test_scripts import (
     BatchExecutionResponse, ScriptExecutionRecord
 )
 from app.services.database_script_service import database_script_service
+import asyncio
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -232,30 +234,38 @@ async def get_script_executions(script_id: str, limit: int = 20):
 
 @router.post("/scripts/{script_id}/execute")
 async def execute_script(script_id: str, request: ScriptExecuteRequest):
-    """执行脚本"""
+    """执行脚本（统一到最优执行流程）"""
     try:
-        script = await database_script_service.get_script(script_id)
-        if not script:
-            raise HTTPException(status_code=404, detail="脚本不存在")
-
-        # 调用脚本执行服务
-        from app.api.v1.endpoints.web.test_script_execution import create_script_execution_session
-
-        # 创建执行会话
-        session_id = await create_script_execution_session(
-            script_content=script.content,
-            script_name=script.name,
-            execution_config=request.execution_config or {},
-            environment_variables=request.environment_variables or {}
+        # 添加详细的请求日志
+        logger.info(f"🎯 [MANAGEMENT] 收到执行脚本请求: script_id={script_id}")
+        logger.info(f"🎯 [MANAGEMENT] 请求配置: execution_config={request.execution_config}")
+        logger.info(f"🎯 [MANAGEMENT] 环境变量: environment_variables={request.environment_variables}")
+        print(f"🎯 [MANAGEMENT] 收到执行脚本请求: script_id={script_id}")
+        print(f"🎯 [MANAGEMENT] 请求内容: {request}")
+        print(f"🎯 [MANAGEMENT] 开始调用统一执行接口...")
+        # 直接调用统一执行接口
+        from app.api.v1.endpoints.web.test_script_execution import (
+            UnifiedScriptExecutionRequest,
+            execute_script_by_id
         )
 
-        logger.info(f"脚本执行启动: {script_id} - {session_id}")
+        # 创建统一执行请求
+        unified_request = UnifiedScriptExecutionRequest(
+            script_id=script_id,
+            execution_config=request.execution_config,
+            environment_variables=request.environment_variables
+        )
+
+        # 调用统一执行接口
+        response = await execute_script_by_id(unified_request)
+
+        logger.info(f"脚本执行启动(统一流程): {script_id} - {response.session_id}")
         return {
-            "execution_id": session_id,
+            "execution_id": response.session_id,
             "script_id": script_id,
             "status": "started",
             "message": "脚本执行已启动",
-            "sse_endpoint": f"/api/v1/web/execution/stream/{session_id}"
+            "sse_endpoint": response.sse_endpoint
         }
 
     except HTTPException:
@@ -279,30 +289,37 @@ async def batch_execute_scripts(request: BatchExecutionRequest):
         if not valid_scripts:
             raise HTTPException(status_code=400, detail="没有找到有效的脚本")
 
-        # 调用脚本执行服务
-        from app.api.v1.endpoints.web.script_execution import create_batch_execution_session
+        # 调用统一执行服务
+        from app.api.v1.endpoints.web.test_script_execution import (
+            UnifiedBatchExecutionRequest,
+            execute_scripts_batch
+        )
 
-        # 创建批量执行会话
-        session_id = await create_batch_execution_session(
-            scripts=[(script.content, script.name) for script in valid_scripts],
-            execution_config=request.execution_config or {},
+        # 创建统一批量执行请求
+        unified_request = UnifiedBatchExecutionRequest(
+            script_ids=[script.id for script in valid_scripts],
+            execution_config=request.execution_config,
+            environment_variables=request.environment_variables,
             parallel=request.parallel or False,
             continue_on_error=request.continue_on_error or True
         )
 
+        # 调用统一批量执行接口
+        unified_response = await execute_scripts_batch(unified_request)
+
         # 生成执行ID列表（为了兼容现有响应格式）
-        execution_ids = [f"{session_id}_{script.name}" for script in valid_scripts]
+        execution_ids = [f"{unified_response.session_id}_{script.name}" for script in valid_scripts]
 
         response = BatchExecutionResponse(
-            batch_id=session_id,
-            script_count=len(valid_scripts),
+            batch_id=unified_response.session_id,
+            script_count=unified_response.script_count,
             execution_ids=execution_ids,
             status="started",
-            message=f"批量执行已启动，共{len(valid_scripts)}个脚本",
+            message=unified_response.message,
             timestamp=datetime.now().isoformat()
         )
 
-        logger.info(f"批量执行启动: {session_id} - {len(valid_scripts)}个脚本")
+        logger.info(f"批量执行启动(统一流程): {unified_response.session_id} - {len(valid_scripts)}个脚本")
         return response
 
     except HTTPException:
@@ -445,6 +462,22 @@ async def save_script_from_session(
     except Exception as e:
         logger.error(f"从会话保存脚本失败: {e}")
         raise HTTPException(status_code=500, detail=f"保存脚本失败: {str(e)}")
+
+
+@router.get("/scripts/{script_id}/execute-test")
+async def test_execute_script(script_id: str):
+    """测试执行脚本的简化端点，用于调试"""
+    logger.info(f"🧪 [TEST] 测试执行端点被调用: script_id={script_id}")
+    print(f"🧪 [TEST] 测试执行端点被调用: script_id={script_id}")
+    
+    # 创建测试请求
+    test_request = ScriptExecuteRequest(
+        execution_config={},
+        environment_variables={}
+    )
+    
+    # 调用实际的执行函数
+    return await execute_script(script_id, test_request)
 
 
 @router.post("/scripts/sync-workspace")

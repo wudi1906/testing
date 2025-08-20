@@ -108,41 +108,51 @@ def get_uitars_model_client() -> OpenAIChatCompletionClient:
 
 # 智能模型选择器
 def get_optimal_model_for_task(task_type: str) -> OpenAIChatCompletionClient:
-    """根据任务类型自动选择最优模型"""
-    
-    task_model_mapping = {
-        # UI相关任务 - 使用QWen-VL (最佳)
-        "ui_analysis": get_qwenvl_model_client,
-        "image_analysis": get_qwenvl_model_client,
-        "page_analysis": get_qwenvl_model_client,
-        "element_recognition": get_qwenvl_model_client,
-        "visual_testing": get_qwenvl_model_client,
-        
-        # 代码生成任务 - 使用DeepSeek (性价比极高)
-        "code_generation": get_deepseek_model_client,
-        "playwright_generation": get_deepseek_model_client,
-        "yaml_generation": get_deepseek_model_client,
-        "test_script": get_deepseek_model_client,
-        "text_processing": get_deepseek_model_client,
-        
-        # 复杂多模态任务 - 使用GLM-4V (能力强)
-        "complex_analysis": get_glm_model_client,
-        "multimodal_reasoning": get_glm_model_client,
-        "business_analysis": get_glm_model_client,
-        
-        # 默认选择
-        "default": get_qwenvl_model_client
+    """根据任务类型自动选择最优模型（带密钥可用性回退）。
+
+    策略：
+    - playwright_generation / code_generation: DeepSeek > QWen-VL > GLM
+    - ui/image/page 相关: QWen-VL > GLM > DeepSeek
+    - complex/multimodal: GLM > QWen-VL > DeepSeek
+    - 默认: QWen-VL > GLM > DeepSeek
+    """
+
+    status = get_model_config_status()
+
+    def available(name: str) -> bool:
+        return bool({
+            'qwen_vl': status.get('qwen_vl') or status.get('qwen'),
+            'glm': status.get('glm'),
+            'deepseek': status.get('deepseek')
+        }.get(name, False))
+
+    order_map = {
+        'playwright_generation': ['deepseek', 'qwen_vl', 'glm'],
+        'code_generation': ['deepseek', 'qwen_vl', 'glm'],
+        'ui_analysis': ['qwen_vl', 'glm', 'deepseek'],
+        'image_analysis': ['qwen_vl', 'glm', 'deepseek'],
+        'page_analysis': ['qwen_vl', 'glm', 'deepseek'],
+        'element_recognition': ['qwen_vl', 'glm', 'deepseek'],
+        'visual_testing': ['qwen_vl', 'glm', 'deepseek'],
+        'complex_analysis': ['glm', 'qwen_vl', 'deepseek'],
+        'multimodal_reasoning': ['glm', 'qwen_vl', 'deepseek'],
+        'business_analysis': ['glm', 'qwen_vl', 'deepseek'],
+        'default': ['qwen_vl', 'glm', 'deepseek']
     }
-    
-    selected_model_fn = task_model_mapping.get(task_type, task_model_mapping["default"])
-    model_name = {
-        get_qwenvl_model_client: "QWen-VL(最佳)",
-        get_deepseek_model_client: "DeepSeek(高性价比)", 
-        get_glm_model_client: "GLM-4V(能力强)"
-    }.get(selected_model_fn, "未知模型")
-    
-    logger.info(f"🎯 任务类型: {task_type} -> 选择模型: {model_name}")
-    return selected_model_fn()
+
+    for name in order_map.get(task_type, order_map['default']):
+        if name == 'deepseek' and available('deepseek'):
+            logger.info(f"🎯 任务类型: {task_type} -> 选择模型: DeepSeek(高性价比)")
+            return get_deepseek_model_client()
+        if name == 'qwen_vl' and available('qwen_vl'):
+            logger.info(f"🎯 任务类型: {task_type} -> 选择模型: QWen-VL(最佳)")
+            return get_qwenvl_model_client()
+        if name == 'glm' and available('glm'):
+            logger.info(f"🎯 任务类型: {task_type} -> 选择模型: GLM-4V(能力强)")
+            return get_glm_model_client()
+
+    # 若均不可用，抛错以便前端提示配置密钥
+    raise RuntimeError("未检测到可用的AI模型密钥，请在后端环境变量中配置至少一个有效密钥（QWEN_VL_API_KEY/GLM_API_KEY/DEEPSEEK_API_KEY）。")
 
 # 模型配置状态检查函数
 def get_model_config_status() -> Dict[str, bool]:

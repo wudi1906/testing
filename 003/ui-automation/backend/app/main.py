@@ -13,6 +13,15 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 import uvicorn
+import platform
+
+# Windows: 修复 Proactor 与 asyncio.subprocess 的兼容问题，避免 NotImplementedError
+if platform.system() == 'Windows':
+    try:
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())  # type: ignore
+    except Exception:
+        pass
 
 from app.core.config import settings
 from app.api.v1.api import api_router
@@ -81,6 +90,41 @@ app.add_middleware(
 )
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# 添加请求日志中间件，捕获所有HTTP请求
+from fastapi import Request
+import time
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    # 记录请求开始
+    logger.info(f"🌐 [HTTP] {request.method} {request.url.path} - 开始处理")
+    print(f"🌐 [HTTP] {request.method} {request.url.path} - 开始处理")
+    
+    # 特别关注执行相关的请求
+    if "/execute" in str(request.url.path):
+        logger.info(f"🔥 [HTTP-EXECUTE] 检测到执行请求: {request.method} {request.url}")
+        print(f"🔥 [HTTP-EXECUTE] 检测到执行请求: {request.method} {request.url}")
+        
+        # 尝试读取请求体
+        try:
+            body = await request.body()
+            if body:
+                logger.info(f"🔥 [HTTP-EXECUTE] 请求体长度: {len(body)} bytes")
+                print(f"🔥 [HTTP-EXECUTE] 请求体: {body.decode('utf-8', errors='ignore')[:200]}...")
+        except Exception as e:
+            logger.warning(f"无法读取请求体: {e}")
+    
+    response = await call_next(request)
+    
+    # 记录请求完成
+    process_time = time.time() - start_time
+    logger.info(f"🌐 [HTTP] {request.method} {request.url.path} - 完成 (状态: {response.status_code}, 耗时: {process_time:.3f}s)")
+    print(f"🌐 [HTTP] {request.method} {request.url.path} - 完成 (状态: {response.status_code}, 耗时: {process_time:.3f}s)")
+    
+    return response
 
 # 包含API路由
 app.include_router(api_router, prefix=settings.API_V1_STR)

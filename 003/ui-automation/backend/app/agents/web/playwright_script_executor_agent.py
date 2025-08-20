@@ -466,16 +466,24 @@ class PlaywrightExecutorAgent(BaseAgent):
                     logger.info(f"[ADSP group] batch_id={batch_id} group_id={group_id or '<none>'}")
                 # 2) 创建或更新 Profile（这里简化为创建）
                 # 设备与UA策略：强制桌面端，开启 ua_auto（最低版本控制通过 min_version）
+                desktop_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
                 fp_cfg = {
-                    "language": "zh-CN",
-                    "timezone": "Asia/Shanghai",
                     "device_type": "desktop",
                     "ua_auto": True,
                     "ua_min_version": max(self.adsp_ua_min, 138),
-                    "screen_resolution": "1920x1080",
+                    "ua": desktop_ua,
+                    "user_agent": desktop_ua,
+                    "platform": "Win32",
+                    "os": "win",
+                    "os_type": "windows",
+                    "system": "windows",
+                    "is_mobile": False,
+                    "mobile": False,
+                    "timezone": "Asia/Shanghai",
+                    # 本地 v1 常见使用下划线分隔
+                    "screen_resolution": "1920_1080",
                     "screen_width": 1920,
                     "screen_height": 1080,
-                    "platform": "Win32",
                 }
                 # 用户自定义覆盖
                 if self.adsp_fp_raw:
@@ -792,6 +800,122 @@ class PlaywrightExecutorAgent(BaseAgent):
                 raise
             return None
 
+    async def _get_screen_size(self) -> Dict[str, int]:
+        """获取主显示器尺寸，失败回退 1920x1080。仅 Windows 使用 OS API。"""
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            user32.SetProcessDPIAware()
+            w = int(user32.GetSystemMetrics(0))
+            h = int(user32.GetSystemMetrics(1))
+            if w > 0 and h > 0:
+                return {"w": w, "h": h}
+        except Exception:
+            pass
+        return {"w": 1920, "h": 1080}
+
+    def _calc_tile_bounds(self, index: int, total: int, screen_w: int, screen_h: int,
+                           cols: int = 5, rows: int = 2, margin: int = 8) -> Dict[str, int]:
+        """计算 5×2 单屏10宫格中的单格窗口像素位置与尺寸。index 从0开始。"""
+        if total <= 0:
+            total = 1
+        if index < 0:
+            index = 0
+        if index >= total:
+            index = total - 1
+        import math
+        cell_w = max(200, int((screen_w - (cols + 1) * margin) / cols))
+        cell_h = max(150, int((screen_h - (rows + 1) * margin) / rows))
+        r = index // cols
+        c = index % cols
+        left = margin + c * (cell_w + margin)
+        top = margin + r * (cell_h + margin)
+        return {"left": left, "top": top, "width": cell_w, "height": cell_h}
+
+    async def _adspower_prepare_window(self, ws_endpoint: str) -> None:
+        """连接到 AdsPower 实例，立即将外层窗口设为 5×2 小格并同步 viewport，避免先大后小闪烁。"""
+        if not ws_endpoint:
+            return
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            # 若未安装 playwright（后端尺寸预设非必须），直接略过
+            return
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(ws_endpoint)
+                context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                # 只复用唯一页，不新开；不 bring_to_front 以降低可见闪动
+                page = context.pages[0] if context.pages else await context.new_page()
+                # 计算 5×2 小格像素
+                scr = await self._get_screen_size()
+                bounds = self._calc_tile_bounds(0, 10, scr['w'], scr['h'], 5, 2, 8)
+                # 绑定当前 page 的 targetId，确保定位最外层真实窗口
+                try:
+                    cdp_page = await context.new_cdp_session(page)
+                    ti = await cdp_page.send('Target.getTargetInfo')
+                    target_id = (ti.get('targetInfo') or {}).get('targetId') or ti.get('targetId')
+                    cdp = await browser.new_browser_cdp_session()
+                    info = await cdp.send('Browser.getWindowForTarget', {'targetId': target_id})
+                    window_id = info.get('windowId')
+                    if window_id:
+                        # 先最小化→再设定位置尺寸→normal，尽量避免默认大窗可见
+                        try:
+                            await cdp.send('Browser.setWindowBounds', {
+                                'windowId': window_id,
+                                'bounds': { 'windowState': 'minimized' }
+                            })
+                            await asyncio.sleep(0.05)
+                        except Exception:
+                            pass
+                        try:
+                            cur = await cdp.send('Browser.getWindowBounds', { 'windowId': window_id })
+                            state = (cur.get('bounds') or {}).get('windowState') or cur.get('windowState')
+                            if state in ('maximized','fullscreen','minimized'):
+                                await cdp.send('Browser.setWindowBounds', { 'windowId': window_id, 'bounds': { 'windowState': 'normal' } })
+                                await asyncio.sleep(0.05)
+                        except Exception:
+                            pass
+                        await cdp.send('Browser.setWindowBounds', {
+                            'windowId': window_id,
+                            'bounds': {
+                                'left': bounds['left'], 'top': bounds['top'],
+                                'width': bounds['width'], 'height': bounds['height'],
+                                'windowState': 'normal'
+                            }
+                        })
+                        # 等待窗口稳定后同步 viewport（在 Node 导航前完成）
+                        await page.wait_for_timeout(250)
+                        try:
+                            inner = await page.evaluate("()=>({w: window.innerWidth, h: window.innerHeight})")
+                            w = max(1, int(inner.get('w') if isinstance(inner, dict) else inner['w']))
+                            h = max(1, int(inner.get('h') if isinstance(inner, dict) else inner['h']))
+                        except Exception:
+                            w = bounds['width']; h = bounds['height']
+                        try:
+                            await page.set_viewport_size({'width': w, 'height': h})
+                        except Exception:
+                            pass
+                        try:
+                            cdp_page2 = await context.new_cdp_session(page)
+                            await cdp_page2.send('Emulation.setDeviceMetricsOverride', {
+                                'width': w,
+                                'height': h,
+                                'deviceScaleFactor': 1,
+                                'mobile': False
+                            })
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+        except Exception:
+            # 所有异常均忽略，不阻断主流程
+            pass
+
     async def _adspower_teardown(self):
         """关闭 AdsPower 浏览器，按需删除 profile。"""
         try:
@@ -805,31 +929,73 @@ class PlaywrightExecutorAgent(BaseAgent):
                     await session.get(stop_url)
                 except Exception:
                     pass
-                await asyncio.sleep(0.5)
-                # 2) delete_cache（可选，多版本兼容）
-                cache_urls = [
-                    f"{self.adsp_base_url}/api/v1/browser/delete_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                    f"{self.adsp_base_url}/api/v1/browser/clear_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                    f"{self.adsp_base_url}/api/v1/user/clear_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                ]
-                for url in cache_urls:
-                    try:
-                        await session.get(url)
-                    except Exception:
-                        continue
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
+                # 2) 清缓存（可选，404 忽略）
+                try:
+                    await session.get(f"{self.adsp_base_url}/api/v1/browser/clear_cache?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}")
+                except Exception:
+                    pass
+                await asyncio.sleep(0.2)
                 # 3) delete（按需）
                 if self.adsp_delete_on_exit:
-                    del_variants = [
-                        f"{self.adsp_base_url}/api/v1/user/delete?user_id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                        f"{self.adsp_base_url}/api/v1/user/delete?id={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                        f"{self.adsp_base_url}/api/v1/user/delete?ids={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}",
-                    ]
-                    for url in del_variants:
-                        try:
-                            await session.get(url)
-                        except Exception:
-                            continue
+                    # GET ids → 429退避重试 → POST user_ids → POST ids
+                    # GET ids
+                    try:
+                        for _ in range(3):
+                            async with session.get(f"{self.adsp_base_url}/api/v1/user/delete?ids={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}") as resp:
+                                txt = await resp.text()
+                                try:
+                                    data = _json.loads(txt)
+                                except Exception:
+                                    data = {}
+                                code = data.get("code")
+                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
+                                if code in (0, 200):
+                                    break
+                                if any(x in msg for x in ["Too many", "request per second", "429"]):
+                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
+                                    continue
+                                break
+                    except Exception:
+                        pass
+                    # POST user_ids
+                    try:
+                        for _ in range(3):
+                            async with session.post(f"{self.adsp_base_url}/api/v1/user/delete?{self.adsp_token_param}={self.adsp_token}", json={"user_ids": [self.adsp_profile_id]}) as resp:
+                                txt = await resp.text()
+                                try:
+                                    data = _json.loads(txt)
+                                except Exception:
+                                    data = {}
+                                code = data.get("code")
+                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
+                                if code in (0, 200):
+                                    break
+                                if any(x in msg for x in ["Too many", "request per second", "429"]):
+                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
+                                    continue
+                                break
+                    except Exception:
+                        pass
+                    # POST ids
+                    try:
+                        for _ in range(3):
+                            async with session.post(f"{self.adsp_base_url}/api/v1/user/delete?{self.adsp_token_param}={self.adsp_token}", json={"ids": [self.adsp_profile_id]}) as resp:
+                                txt = await resp.text()
+                                try:
+                                    data = _json.loads(txt)
+                                except Exception:
+                                    data = {}
+                                code = data.get("code")
+                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
+                                if code in (0, 200):
+                                    break
+                                if any(x in msg for x in ["Too many", "request per second", "429"]):
+                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
+                                    continue
+                                break
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning(f"AdsPower 资源清理失败: {e}")
         finally:
@@ -1082,6 +1248,11 @@ test("AI自动化测试", async ({{
                 if not ws_endpoint and self.force_adspower_only:
                     raise RuntimeError("AdsPower wsEndpoint 获取失败，且已启用仅AdsPower模式")
                 if ws_endpoint:
+                    # 启动 Node 侧前预先定型窗口与 viewport，避免“先大后小”闪烁
+                    try:
+                        await self._adspower_prepare_window(ws_endpoint)
+                    except Exception as _e:
+                        logger.warning(f"窗口定型预处理失败（忽略继续）: {_e}")
                     env["PW_TEST_CONNECT_WS_ENDPOINT"] = ws_endpoint
                     logger.info(f"🔌 使用AdsPower浏览器会话: wsEndpoint={ws_endpoint}")
             except Exception as e:
@@ -1185,11 +1356,10 @@ test("AI自动化测试", async ({{
                 env['AI_MOCK_MODE'] = env.get('AI_MOCK_MODE', 'true') or 'true'
                 logger.warning('⚠️ 未检测到任何有效AI密钥，已自动启用 Mock 模式 (AI_MOCK_MODE=true)')
 
-            # 在启动前执行通道预检，强制选择一个连通的Provider，确保Midscene不会误选
+            # 在启动前执行通道预检，仅做连通性校验与日志提示，不强制写入 Provider
             selected_provider = await self._probe_and_select_provider(env)
             if selected_provider:
-                env['MIDSCENE_FORCE_PROVIDER'] = selected_provider
-                logger.info(f"✅ 预检成功，强制选择Provider: {selected_provider}")
+                logger.info(f"✅ 预检通过，可用Provider: {selected_provider}")
 
             # 详细的环境变量调试日志
             logger.info("🔍 Playwright执行环境调试 - 环境变量检查:")

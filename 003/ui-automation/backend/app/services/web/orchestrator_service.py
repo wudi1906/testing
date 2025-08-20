@@ -63,13 +63,13 @@ class WebAgentOrchestrator:
             if self.response_collector is None:
                 self.response_collector = StreamResponseCollector()
 
-            # 使用智能体工厂注册Web平台智能体
+            # 默认注册全量（分析/生成/执行）
             await self.agent_factory.register_web_agents(
                 runtime=self.runtime,
                 collector=self.response_collector,
                 enable_user_feedback=False
             )
-            logger.info("🔌 Web agents registered")
+            logger.info("🔌 Web agents registered (full)")
 
             # 注册流式响应收集器
             await self.agent_factory.register_stream_collector(
@@ -189,7 +189,7 @@ class WebAgentOrchestrator:
 
             logger.info(f"开始图片分析到脚本生成工作流: {session_id}, 格式: {generate_formats}")
 
-            # 初始化运行时
+            # 初始化运行时（恢复全量注册，保持业务流程完整）
             await self._initialize_runtime(session_id)
 
             # 构建图片分析请求
@@ -250,7 +250,7 @@ class WebAgentOrchestrator:
         try:
             logger.info(f"开始页面元素分析工作流: {session_id}, 页面: {page_name}")
 
-            # 初始化运行时
+            # 初始化运行时（恢复全量注册，保持业务流程完整）
             await self._initialize_runtime(session_id)
 
             # 构建页面分析请求

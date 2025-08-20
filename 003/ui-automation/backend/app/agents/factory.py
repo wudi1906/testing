@@ -322,6 +322,53 @@ class AgentFactory:
             logger.error(f"注册Web平台智能体失败: {str(e)}")
             raise
 
+    async def register_generation_agents(self,
+                                        runtime: SingleThreadedAgentRuntime,
+                                        formats: Optional[List[str]] = None,
+                                        collector=None,
+                                        enable_user_feedback: bool = False) -> None:
+        """仅注册“脚本生成最小集合”智能体，避免与执行器耦合导致生成失败。
+
+        - 根据 formats 注册对应生成器（yaml / playwright）
+        - 始终注册 SCRIPT_DATABASE_SAVER 以便入库
+        - 不注册 PLAYWRIGHT_EXECUTOR / YAML_EXECUTOR 等执行器
+        """
+        try:
+            formats = formats or ["playwright"]
+
+            # YAML 生成器
+            if "yaml" in formats:
+                await self.register_agent(
+                    runtime,
+                    AgentTypes.YAML_GENERATOR.value,
+                    TopicTypes.YAML_GENERATOR.value
+                )
+
+            # Playwright 生成器
+            if "playwright" in formats:
+                await self.register_agent(
+                    runtime,
+                    AgentTypes.PLAYWRIGHT_GENERATOR.value,
+                    TopicTypes.PLAYWRIGHT_GENERATOR.value
+                )
+
+            # 数据库存储
+            await self.register_agent(
+                runtime,
+                AgentTypes.SCRIPT_DATABASE_SAVER.value,
+                TopicTypes.SCRIPT_DATABASE_SAVER.value
+            )
+
+            # 注册流式收集器（如传入）
+            if collector:
+                await self.register_stream_collector(runtime, collector)
+
+            logger.info("最小生成智能体集合注册完成")
+
+        except Exception as e:
+            logger.error(f"注册最小生成智能体集合失败: {str(e)}")
+            raise
+
     async def register_all_agents(self,
                                 runtime: SingleThreadedAgentRuntime,
                                 collector=None,

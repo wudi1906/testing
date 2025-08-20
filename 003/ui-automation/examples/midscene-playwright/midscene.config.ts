@@ -47,33 +47,7 @@ const config = {
       };
     }
     
-    // 若后端已通过环境变量强制选择Provider，直接按指定Provider返回配置
-    const forced = (process.env.MIDSCENE_FORCE_PROVIDER || '').trim().toLowerCase();
-    if (forced) {
-      const map: any = {
-        'qwen': {
-          provider: 'openai-compatible', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-plus', key: process.env.QWEN_VL_API_KEY
-        },
-        'glm': {
-          provider: 'openai-compatible', baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v', key: process.env.GLM_API_KEY
-        },
-        'deepseek': {
-          provider: 'openai-compatible', baseURL: 'https://api.deepseek.com/v1', model: 'deepseek-chat', key: process.env.DEEPSEEK_API_KEY
-        },
-        'uitars': {
-          provider: 'openai-compatible', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-1-5-ui-tars-250428', key: process.env.UI_TARS_API_KEY
-        },
-        'openai': {
-          provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o', key: process.env.OPENAI_API_KEY
-        }
-      };
-      const c = map[forced];
-      if (c && c.key && c.key.trim()) {
-        console.log('🎯 按后端预检强制选择Provider:', forced);
-        return { provider: c.provider, baseURL: c.baseURL, model: c.model, apiKey: c.key };
-      }
-      console.warn('⚠️ 后端指定的 Provider 缺少密钥，回退到自动选择');
-    }
+    // 移除外部环境对 Provider 的强制指定，统一由代码内部自动选择
 
     // 优先级顺序选择API密钥（只使用环境变量，不再使用任何硬编码密钥）
     const apiOptions = [
@@ -82,7 +56,8 @@ const config = {
       { key: process.env.GLM_API_KEY, provider: 'openai-compatible', baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v', name: 'GLM-4V', validator: () => isValidKey('glm', process.env.GLM_API_KEY) },
       { key: process.env.DEEPSEEK_API_KEY, provider: 'openai-compatible', baseURL: 'https://api.deepseek.com/v1', model: 'deepseek-chat', name: 'DeepSeek', validator: () => isValidKey('deepseek', process.env.DEEPSEEK_API_KEY) },
       { key: process.env.UI_TARS_API_KEY, provider: 'openai-compatible', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-1-5-ui-tars-250428', name: 'UI-TARS', validator: () => isValidKey('uitars', process.env.UI_TARS_API_KEY) },
-      { key: process.env.OPENAI_API_KEY, provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o', name: 'OpenAI', validator: () => isValidKey('openai', process.env.OPENAI_API_KEY) },
+      // 放宽 OpenAI Project Key（sk-proj-）格式限制，避免被误判为无效
+      { key: process.env.OPENAI_API_KEY, provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o', name: 'OpenAI', validator: () => !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim()) },
     ];
     
     // 找到第一个有效的API密钥
