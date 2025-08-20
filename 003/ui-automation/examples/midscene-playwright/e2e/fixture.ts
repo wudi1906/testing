@@ -363,11 +363,30 @@ export const test = baseForceConnect.extend<{
   // 复用现有唯一 Page，避免新开标签页与 viewport 变更
   page: async ({ context }, use) => {
     const pages = context.pages?.() || [];
-    if (pages.length > 0) {
-      await use(pages[0]);
-      return;
+    const p = pages.length > 0 ? pages[0] : await context.newPage();
+
+    // 在连入 AdsPower 的情况下：
+    // 1) 将 viewport 强制同步为 window.innerWidth/innerHeight
+    // 2) 拦截后续任何 setViewportSize 调整，避免用例里固定 1280x768 破坏小窗尺寸
+    if (WS_ENDPOINT) {
+      try {
+        const size = await p.evaluate(() => ({ width: (window as any).innerWidth, height: (window as any).innerHeight }));
+        if (size && size.width && size.height) {
+          await p.setViewportSize({ width: Math.max(1, Math.floor(size.width)), height: Math.max(1, Math.floor(size.height)) }).catch(() => {});
+        }
+      } catch {}
+
+      try {
+        const original = (p as any).setViewportSize?.bind(p);
+        (p as any).setViewportSize = async (sz: any) => {
+          console.log('[Fixture] Ignore setViewportSize in CDP-connected mode (keeping window-matched viewport):', sz);
+          return; // no-op，保持与外层窗口一致
+        };
+        // 仍可通过 original 手动调用（若以后需要）
+        (p as any).__setViewportSizeOriginal = original;
+      } catch {}
     }
-    const p = await context.newPage();
+
     await use(p);
   },
   aiAsk: async ({ ai }, use) => {

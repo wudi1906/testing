@@ -397,6 +397,208 @@ class PlaywrightExecutorAgent(BaseAgent):
             except Exception as _e:
                 logger.warning(f"执行结束后的 AdsPower 清理异常: {_e}")
 
+    def _precompute_window_bounds(self, tile_index: int = 0) -> Dict[str, int]:
+        """预计算窗口边界，在 AdsPower 创建前就确定 2×5 网格的位置和尺寸。"""
+        # 固定 5×2 网格配置（默认设置，不依赖环境变量）
+        cols = 5
+        rows = 2
+        margin = 8
+        total_tiles = cols * rows
+        
+        # 获取屏幕分辨率
+        screen = self._get_screen_size_sync()
+        bounds = self._calc_tile_bounds(tile_index, total_tiles, screen['w'], screen['h'], cols, rows, margin)
+        
+        logger.info(f"[预计算窗口] 屏幕={screen['w']}x{screen['h']}, 网格={cols}x{rows}, 格子#{tile_index}")
+        logger.info(f"[预计算窗口] 位置=({bounds['left']},{bounds['top']}) 尺寸={bounds['width']}x{bounds['height']}")
+        
+        return bounds
+
+    def _get_screen_size_sync(self) -> Dict[str, int]:
+        """同步获取屏幕尺寸（支持预计算阶段调用）。"""
+        try:
+            import platform
+            if platform.system() == 'Windows':
+                import ctypes
+                user32 = ctypes.windll.user32
+                w = user32.GetSystemMetrics(0)  # SM_CXSCREEN
+                h = user32.GetSystemMetrics(1)  # SM_CYSCREEN
+                if w > 0 and h > 0:
+                    return {"w": w, "h": h}
+        except Exception:
+            pass
+        # 兜底默认值
+        return {"w": 1920, "h": 1080}
+
+    async def _adspower_apply_precomputed_bounds(self, ws_endpoint: str, bounds: Dict[str, int]) -> None:
+        """将预计算的窗口边界应用到 AdsPower 实例（兜底机制，优先在创建时设置）。"""
+        if not ws_endpoint or not bounds:
+            return
+        try:
+            from playwright.async_api import async_playwright
+            
+            async with async_playwright() as p:
+                browser = await p.chromium.connect_over_cdp(ws_endpoint)
+                context = browser.contexts[0] if browser.contexts else await browser.new_context()
+                page = context.pages[0] if context.pages else await context.new_page()
+
+                # 获取 windowId 并设置边界
+                cdp_page = await context.new_cdp_session(page)
+                ti = await cdp_page.send('Target.getTargetInfo')
+                target_id = (ti.get('targetInfo') or {}).get('targetId') or ti.get('targetId')
+                
+                if target_id:
+                    cdp = await browser.new_browser_cdp_session()
+                    
+                    # Windows DPI 缩放处理
+                    scale = 1.0
+                    try:
+                        import platform, ctypes
+                        if platform.system() == 'Windows':
+                            dpi = ctypes.windll.user32.GetDpiForSystem()
+                            scale = max(1.0, float(dpi) / 96.0) if dpi else 1.0
+                    except Exception:
+                        pass
+                    
+                    bounds_dip = {
+                        'left': max(1, int(round(bounds['left'] / scale))),
+                        'top': max(1, int(round(bounds['top'] / scale))),
+                        'width': max(1, int(round(bounds['width'] / scale))),
+                        'height': max(1, int(round(bounds['height'] / scale))),
+                    }
+                    
+                    try:
+                        info = await cdp.send('Browser.getWindowForTarget', {'targetId': target_id})
+                        window_id = info.get('windowId')
+                        
+                        if window_id:
+                            # 最小化 → 设置尺寸 → 正常显示
+                            await cdp.send('Browser.setWindowBounds', {
+                                'windowId': window_id,
+                                'bounds': {'windowState': 'minimized'}
+                            })
+                            await asyncio.sleep(0.05)
+                            
+                            await cdp.send('Browser.setWindowBounds', {
+                                'windowId': window_id,
+                                'bounds': {
+                                    'left': bounds_dip['left'],
+                                    'top': bounds_dip['top'],
+                                    'width': bounds_dip['width'],
+                                    'height': bounds_dip['height'],
+                                    'windowState': 'normal'
+                                }
+                            })
+                            
+                            logger.info(f"✅ 应用预计算边界: DIP {bounds_dip['left']},{bounds_dip['top']} {bounds_dip['width']}x{bounds_dip['height']}")
+                            
+                            # 同步 viewport
+                            await asyncio.sleep(0.1)
+                            inner = await page.evaluate("()=>({w: window.innerWidth, h: window.innerHeight})")
+                            if inner and inner.get('w', 0) > 0:
+                                await page.set_viewport_size({'width': inner['w'], 'height': inner['h']})
+                        else:
+                            logger.warning("⚠️ 无法获取 AdsPower 窗口 ID")
+                    except Exception as e:
+                        logger.warning(f"CDP 窗口边界设置失败: {e}")
+                        
+        except Exception as e:
+            logger.warning(f"应用预计算窗口边界失败: {e}")
+
+    async def _adspower_apply_bounds_via_cdp_ws(self, ws_endpoint: str, bounds: Dict[str, int]) -> bool:
+        """不依赖 Playwright，直接通过 CDP WebSocket 设置窗口位置与尺寸，并同步页面 viewport。
+        返回是否成功。"""
+        if not ws_endpoint or not bounds:
+            return False
+        try:
+            import aiohttp
+            import json
+            # Windows DPI 缩放
+            scale = 1.0
+            try:
+                import platform, ctypes
+                if platform.system() == 'Windows':
+                    dpi = ctypes.windll.user32.GetDpiForSystem()
+                    scale = max(1.0, float(dpi) / 96.0) if dpi else 1.0
+            except Exception:
+                pass
+            def to_dip(v: int) -> int:
+                try:
+                    return max(1, int(round(v / scale)))
+                except Exception:
+                    return v
+            b = {
+                'left': to_dip(bounds['left']),
+                'top': to_dip(bounds['top']),
+                'width': to_dip(bounds['width']),
+                'height': to_dip(bounds['height']),
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(ws_endpoint, heartbeat=15) as ws:
+                    req_id = 0
+                    async def send(method: str, params: Dict[str, Any] = None, session_id: Optional[str] = None) -> Dict[str, Any]:
+                        nonlocal req_id
+                        req_id += 1
+                        payload: Dict[str, Any] = {"id": req_id, "method": method}
+                        if params:
+                            payload["params"] = params
+                        if session_id:
+                            payload["sessionId"] = session_id
+                        await ws.send_str(json.dumps(payload))
+                        # 等待对应的响应
+                        while True:
+                            msg = await asyncio.wait_for(ws.receive(), timeout=3)
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                data = json.loads(msg.data)
+                                if data.get("id") == req_id:
+                                    return data.get("result") or {}
+                            elif msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                                raise RuntimeError("WebSocket closed")
+
+                    # 选取一个 page target
+                    targets = await send('Target.getTargets')
+                    target_id = None
+                    for t in targets.get('targetInfos', []):
+                        if t.get('type') == 'page':
+                            target_id = t.get('targetId')
+                            break
+                    if not target_id:
+                        # 新开一个 about:blank 页面作为定位对象
+                        created = await send('Target.createTarget', {"url": "about:blank"})
+                        target_id = created.get('targetId')
+                    if not target_id:
+                        raise RuntimeError('No page target available')
+
+                    # 获取窗口并设置边界
+                    info = await send('Browser.getWindowForTarget', {"targetId": target_id})
+                    window_id = info.get('windowId')
+                    if not window_id:
+                        raise RuntimeError('No windowId from Browser.getWindowForTarget')
+
+                    # 先确保 normal 状态
+                    try:
+                        await send('Browser.setWindowBounds', {"windowId": window_id, "bounds": {"windowState": "normal"}})
+                    except Exception:
+                        pass
+                    await send('Browser.setWindowBounds', {
+                        "windowId": window_id,
+                        "bounds": {"left": b['left'], "top": b['top'], "width": b['width'], "height": b['height'], "windowState": "normal"}
+                    })
+
+                    # 附加到目标，设置设备指标以匹配 viewport
+                    attached = await send('Target.attachToTarget', {"targetId": target_id, "flatten": True})
+                    session_id = attached.get('sessionId')
+                    if session_id:
+                        await send('Emulation.setDeviceMetricsOverride', {"width": b['width'], "height": b['height'], "deviceScaleFactor": 1, "mobile": False}, session_id=session_id)
+                    # 读取回读值用于日志
+                    bb = await send('Browser.getWindowBounds', {"windowId": window_id})
+                    logger.info(f"[CDP-WS window] set -> left={bb.get('bounds',{}).get('left')} top={bb.get('bounds',{}).get('top')} w={bb.get('bounds',{}).get('width')} h={bb.get('bounds',{}).get('height')} state={(bb.get('bounds',{}) or {}).get('windowState')}")
+            return True
+        except Exception as e:
+            logger.warning(f"CDP WS 设置窗口失败: {e!r}")
+            return False
+
     async def _prepare_adspower_with_proxy(self) -> Optional[str]:
         """获取青果代理 → 创建/更新 AdsPower Profile → 启动 → 返回 wsEndpoint。
         要求：FORCE_ADSPOWER_ONLY=true 时，失败抛异常；否则返回 None。
@@ -467,6 +669,10 @@ class PlaywrightExecutorAgent(BaseAgent):
                 # 2) 创建或更新 Profile（这里简化为创建）
                 # 设备与UA策略：强制桌面端，开启 ua_auto（最低版本控制通过 min_version）
                 desktop_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
+                # 预计算窗口边界，为 AdsPower 提供准确的屏幕尺寸
+                window_bounds = self._precompute_window_bounds(0)  # 默认使用第一个格子
+                screen_info = self._get_screen_size_sync()
+                
                 fp_cfg = {
                     "device_type": "desktop",
                     "ua_auto": True,
@@ -480,10 +686,15 @@ class PlaywrightExecutorAgent(BaseAgent):
                     "is_mobile": False,
                     "mobile": False,
                     "timezone": "Asia/Shanghai",
-                    # 本地 v1 常见使用下划线分隔
-                    "screen_resolution": "1920_1080",
-                    "screen_width": 1920,
-                    "screen_height": 1080,
+                    # 使用实际屏幕分辨率而非硬编码
+                    "screen_resolution": f"{screen_info['w']}_{screen_info['h']}",
+                    "screen_width": screen_info['w'],
+                    "screen_height": screen_info['h'],
+                    # 尝试设置期望的窗口尺寸（部分 AdsPower 版本可能支持）
+                    "window_width": window_bounds['width'],
+                    "window_height": window_bounds['height'],
+                    "window_left": window_bounds['left'],
+                    "window_top": window_bounds['top'],
                 }
                 # 用户自定义覆盖
                 if self.adsp_fp_raw:
@@ -791,9 +1002,23 @@ class PlaywrightExecutorAgent(BaseAgent):
                 # 简单重试验证
                 for _ in range(3):
                     if ws:
+                        # 优先使用原生 CDP WS 进行窗口定位，失败再回退 Playwright CDP
+                        applied = False
+                        try:
+                            applied = await self._adspower_apply_bounds_via_cdp_ws(ws, window_bounds)
+                        except Exception as e:
+                            logger.warning(f"CDP WS 应用窗口边界异常: {e}")
+                        if not applied:
+                            try:
+                                await self._adspower_apply_precomputed_bounds(ws, window_bounds)
+                                applied = True
+                            except Exception as e:
+                                logger.warning(f"应用预计算窗口边界失败: {e}")
+                        if applied:
+                            logger.info("✅ 预计算窗口边界已应用")
                         return ws
                     await asyncio.sleep(1)
-                return ws
+            return ws
         except Exception as e:
             logger.error(f"_prepare_adspower_with_proxy 失败: {e}")
             if self.force_adspower_only:
@@ -833,7 +1058,17 @@ class PlaywrightExecutorAgent(BaseAgent):
         return {"left": left, "top": top, "width": cell_w, "height": cell_h}
 
     async def _adspower_prepare_window(self, ws_endpoint: str) -> None:
-        """连接到 AdsPower 实例，立即将外层窗口设为 5×2 小格并同步 viewport，避免先大后小闪烁。"""
+        """连接到 AdsPower 实例并进行窗口定型：
+        - 将最外层窗口定位到单屏 5×2（可配）网格中的一个单元（像素级）
+        - 使页面 viewport 与 window.innerWidth/innerHeight 保持一致
+        - 避免“先大后小”闪烁
+        可配置环境变量（均为可选）：
+        - ADSP_GRID_COLS, ADSP_GRID_ROWS（默认 5×2）
+        - ADSP_TILE_INDEX（默认 0）
+        - ADSP_TILE_TOTAL（默认 rows*cols）
+        - ADSP_MARGIN_PX（默认 8）
+        - ADSP_SCREEN_RES（如 1920x1080；若未设置则读取系统分辨率）
+        """
         if not ws_endpoint:
             return
         try:
@@ -847,17 +1082,120 @@ class PlaywrightExecutorAgent(BaseAgent):
                 context = browser.contexts[0] if browser.contexts else await browser.new_context()
                 # 只复用唯一页，不新开；不 bring_to_front 以降低可见闪动
                 page = context.pages[0] if context.pages else await context.new_page()
-                # 计算 5×2 小格像素
-                scr = await self._get_screen_size()
-                bounds = self._calc_tile_bounds(0, 10, scr['w'], scr['h'], 5, 2, 8)
-                # 绑定当前 page 的 targetId，确保定位最外层真实窗口
+                # 计算网格与单元像素
+                cols = max(1, int(os.getenv("ADSP_GRID_COLS", "5") or 5))
+                rows = max(1, int(os.getenv("ADSP_GRID_ROWS", "2") or 2))
+                total = int(os.getenv("ADSP_TILE_TOTAL", str(cols * rows)) or cols * rows)
+                index = int(os.getenv("ADSP_TILE_INDEX", "0") or 0)
+                margin = max(0, int(os.getenv("ADSP_MARGIN_PX", "8") or 8))
+
+                # 屏幕分辨率：优先环境变量，其次系统查询
+                env_res = os.getenv("ADSP_SCREEN_RES") or os.getenv("ADSP_MONITOR_RES") or os.getenv("ADSP_RESOLUTION")
+                if env_res and ("x" in env_res or "_" in env_res):
+                    sep = "x" if "x" in env_res else "_"
+                    try:
+                        sw, sh = [int(x) for x in env_res.split(sep, 1)]
+                        scr = {"w": sw, "h": sh}
+                    except Exception:
+                        scr = await self._get_screen_size()
+                else:
+                    scr = await self._get_screen_size()
+
+                # Windows 上 DevTools Browser.setWindowBounds 采用 DIP（device-independent pixels）
+                # 若系统缩放不为 100%，需要将像素转换为 DIP
+                scale = 1.0
+                try:
+                    import platform
+                    if platform.system() == 'Windows':
+                        try:
+                            import ctypes
+                            # Windows 10+：GetDpiForSystem 可用
+                            dpi = ctypes.windll.user32.GetDpiForSystem()
+                            scale = max(1.0, float(dpi) / 96.0) if dpi else 1.0
+                        except Exception:
+                            # 备用：shcore.GetScaleFactorForDevice（返回百分比）
+                            try:
+                                shcore = ctypes.windll.shcore
+                                factor = ctypes.c_int()
+                                # PROCESS_PER_MONITOR_DPI_AWARE
+                                try:
+                                    shcore.SetProcessDpiAwareness(2)
+                                except Exception:
+                                    pass
+                                if shcore.GetScaleFactorForDevice(0, ctypes.byref(factor)) == 0 and factor.value:
+                                    scale = max(1.0, float(factor.value) / 100.0)
+                            except Exception:
+                                scale = 1.0
+                except Exception:
+                    scale = 1.0
+
+                bounds = self._calc_tile_bounds(index, total, scr['w'], scr['h'], cols, rows, margin)
+                # 记录像素与 DIP 的尺寸
+                try:
+                    logger.info(f"[ADSP screen] px={scr['w']}x{scr['h']} scale={scale:.2f} -> dip={int(scr['w']/scale)}x{int(scr['h']/scale)}")
+                    logger.info(f"[ADSP tile(px)] left={bounds['left']} top={bounds['top']} w={bounds['width']} h={bounds['height']}")
+                except Exception:
+                    pass
+
+                # 转为 DIP
+                def _to_dip(v: int) -> int:
+                    try:
+                        return max(1, int(round(v / scale)))
+                    except Exception:
+                        return v
+
+                bounds_dip = {
+                    'left': _to_dip(bounds['left']),
+                    'top': _to_dip(bounds['top']),
+                    'width': _to_dip(bounds['width']),
+                    'height': _to_dip(bounds['height']),
+                }
+                try:
+                    logger.info(f"[ADSP tile(dip)] left={bounds_dip['left']} top={bounds_dip['top']} w={bounds_dip['width']} h={bounds_dip['height']}")
+                except Exception:
+                    pass
+                # 绑定当前 page 的 targetId，确保定位最外层真实窗口（多策略兜底）
                 try:
                     cdp_page = await context.new_cdp_session(page)
                     ti = await cdp_page.send('Target.getTargetInfo')
                     target_id = (ti.get('targetInfo') or {}).get('targetId') or ti.get('targetId')
                     cdp = await browser.new_browser_cdp_session()
-                    info = await cdp.send('Browser.getWindowForTarget', {'targetId': target_id})
-                    window_id = info.get('windowId')
+
+                    async def _resolve_window_id() -> int:
+                        try:
+                            info1 = await cdp.send('Browser.getWindowForTarget', {'targetId': target_id})
+                            if info1 and info1.get('windowId'):
+                                return info1.get('windowId')
+                        except Exception:
+                            pass
+                        try:
+                            info2 = await cdp.send('Browser.getWindowForTarget')
+                            if info2 and info2.get('windowId'):
+                                return info2.get('windowId')
+                        except Exception:
+                            pass
+                        # 遍历所有 page target 逐一尝试
+                        try:
+                            tgts = await cdp.send('Target.getTargets')
+                            for t in (tgts.get('targetInfos') or []):
+                                if t.get('type') == 'page':
+                                    try:
+                                        info3 = await cdp.send('Browser.getWindowForTarget', {'targetId': t.get('targetId')})
+                                        if info3 and info3.get('windowId'):
+                                            return info3.get('windowId')
+                                    except Exception:
+                                        continue
+                        except Exception:
+                            pass
+                        return 0
+
+                    window_id: int = 0
+                    # 等待最多 ~1s 直到 windowId 可用
+                    for _ in range(10):
+                        window_id = await _resolve_window_id()
+                        if window_id:
+                            break
+                        await asyncio.sleep(0.1)
                     if window_id:
                         # 先最小化→再设定位置尺寸→normal，尽量避免默认大窗可见
                         try:
@@ -879,11 +1217,17 @@ class PlaywrightExecutorAgent(BaseAgent):
                         await cdp.send('Browser.setWindowBounds', {
                             'windowId': window_id,
                             'bounds': {
-                                'left': bounds['left'], 'top': bounds['top'],
-                                'width': bounds['width'], 'height': bounds['height'],
+                                'left': bounds_dip['left'], 'top': bounds_dip['top'],
+                                'width': bounds_dip['width'], 'height': bounds_dip['height'],
                                 'windowState': 'normal'
                             }
                         })
+                        try:
+                            cur2 = await cdp.send('Browser.getWindowBounds', { 'windowId': window_id })
+                            bb = cur2.get('bounds') or {}
+                            logger.info(f"[ADSP window] bounds set -> left={bb.get('left')} top={bb.get('top')} w={bb.get('width')} h={bb.get('height')} state={bb.get('windowState')}")
+                        except Exception:
+                            pass
                         # 等待窗口稳定后同步 viewport（在 Node 导航前完成）
                         await page.wait_for_timeout(250)
                         try:
@@ -1248,11 +1592,8 @@ test("AI自动化测试", async ({{
                 if not ws_endpoint and self.force_adspower_only:
                     raise RuntimeError("AdsPower wsEndpoint 获取失败，且已启用仅AdsPower模式")
                 if ws_endpoint:
-                    # 启动 Node 侧前预先定型窗口与 viewport，避免“先大后小”闪烁
-                    try:
-                        await self._adspower_prepare_window(ws_endpoint)
-                    except Exception as _e:
-                        logger.warning(f"窗口定型预处理失败（忽略继续）: {_e}")
+                    # 窗口边界已在 AdsPower 创建/启动时预设，无需额外处理
+                    logger.info(f"✅ AdsPower 窗口已通过预计算边界启动: {ws_endpoint}")
                     env["PW_TEST_CONNECT_WS_ENDPOINT"] = ws_endpoint
                     env["PW_WS_ENDPOINT"] = ws_endpoint
                     logger.info(f"🔌 使用AdsPower浏览器会话: wsEndpoint={ws_endpoint} (已注入 PW_TEST_CONNECT_WS_ENDPOINT 与 PW_WS_ENDPOINT)")
