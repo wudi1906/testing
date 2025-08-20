@@ -319,13 +319,29 @@ const baseWithAi = base.extend<PlayWrightAiFixtureType>(
   PlaywrightAiFixture({
     waitForNetworkIdleTimeout: 200000,
     ...midsceneConfig,
+    // 仍保留中间件内置的连接能力
     connectExisting: WS_ENDPOINT || undefined,
     cdpConnect: true,
     connectTimeoutMs: 60000,
   })
 );
 
-export const test = baseWithAi.extend<{
+// 显式覆盖 browser 固定夹：当提供 WS endpoint 时强制使用 CDP 直连 AdsPower，避免回退到本地Chromium
+const baseForceConnect = baseWithAi.extend<{ browser: Browser }>({
+  browser: async ({}, use) => {
+    if (WS_ENDPOINT) {
+      console.log(`🔌 [Fixture] Connecting to existing AdsPower via CDP: ${WS_ENDPOINT}`);
+      const browser = await chromium.connectOverCDP(WS_ENDPOINT);
+      // 不在此处关闭，由后端统一 stop/delete
+      await use(browser as unknown as Browser);
+      return;
+    }
+    // 无 WS 时走默认行为（用于本地兜底）
+    await use(await chromium.launch());
+  }
+});
+
+export const test = baseForceConnect.extend<{
   aiTap: any;
   aiWaitFor: any;
   aiAssert: any;

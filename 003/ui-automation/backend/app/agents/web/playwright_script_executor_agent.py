@@ -1254,7 +1254,8 @@ test("AI自动化测试", async ({{
                     except Exception as _e:
                         logger.warning(f"窗口定型预处理失败（忽略继续）: {_e}")
                     env["PW_TEST_CONNECT_WS_ENDPOINT"] = ws_endpoint
-                    logger.info(f"🔌 使用AdsPower浏览器会话: wsEndpoint={ws_endpoint}")
+                    env["PW_WS_ENDPOINT"] = ws_endpoint
+                    logger.info(f"🔌 使用AdsPower浏览器会话: wsEndpoint={ws_endpoint} (已注入 PW_TEST_CONNECT_WS_ENDPOINT 与 PW_WS_ENDPOINT)")
             except Exception as e:
                 logger.error(f"AdsPower 初始化失败: {e}")
                 if self.force_adspower_only:
