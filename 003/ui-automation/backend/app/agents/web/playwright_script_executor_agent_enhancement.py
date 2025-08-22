@@ -173,6 +173,32 @@ class PlaywrightExecutorEnhancement:
         if return_code == 0:
             await self.agent.send_response("🎉 测试执行完成!")
         else:
+            # 尝试读取错误上下文文件的前若干行，便于快速定位
+            try:
+                import os
+                from pathlib import Path
+                work = self.agent.playwright_workspace
+                # 搜索最新 error-context.md
+                target_dir = Path(work) / 'test-results'
+                newest = None
+                newest_mtime = 0.0
+                for root, _, files in os.walk(target_dir):
+                    for f in files:
+                        if f == 'error-context.md':
+                            p = Path(root) / f
+                            m = p.stat().st_mtime
+                            if m > newest_mtime:
+                                newest = p
+                                newest_mtime = m
+                if newest and newest.exists():
+                    # 🎯 读取文件头部（一次性，无需循环）
+                    head = []
+                    with newest.open('r', encoding='utf-8', errors='ignore') as fh:
+                        head = fh.readlines()[:60]  # 直接读取前60行
+                    snippet = "\n".join(line.rstrip() for line in head)
+                    await self.agent.send_response(f"🚨 Error Context(Head):\n{snippet}")
+            except Exception:
+                pass
             await self.agent.send_response("❌ 测试执行失败，请查看详细日志")
         
         return {

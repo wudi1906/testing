@@ -11,7 +11,7 @@ if (Test-Path $localEnvFile) {
     & ".\$localEnvFile"
 } else {
     Write-Host "⚠️  未找到本地环境配置文件: $localEnvFile" -ForegroundColor Yellow
-    Write-Host "请先复制 env-setup-template.ps1 为 $localEnvFile 并配置你的密钥" -ForegroundColor Yellow
+    Write-Host "请先复制 env-setup-example.ps1 为 $localEnvFile 并配置你的密钥" -ForegroundColor Yellow
     Write-Host "或者手动设置环境变量后再运行此脚本" -ForegroundColor Yellow
 }
 

@@ -10,11 +10,13 @@ import asyncio
 import subprocess
 import re
 import webbrowser
+import time
+import random
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 from pathlib import Path
 import aiohttp
-import json as _json
+import json
 
 from autogen_core import message_handler, type_subscription, MessageContext
 from loguru import logger
@@ -56,7 +58,8 @@ class PlaywrightExecutorAgent(BaseAgent):
         self.adsp_token = os.getenv("ADSP_TOKEN", os.getenv("ADSP_POWER_TOKEN", ""))
         self.adsp_token_param = os.getenv("ADSP_TOKEN_PARAM", "token")
         self.adsp_profile_id = None
-        self.adsp_delete_on_exit = os.getenv("ADSP_DELETE_PROFILE_ON_EXIT", "false").lower() == "true"
+        # 🔧 强制删除profile确保每次都是全新环境
+        self.adsp_delete_on_exit = os.getenv("ADSP_DELETE_PROFILE_ON_EXIT", "true").lower() == "true"
         self.adsp_ua_auto = os.getenv("ADSP_UA_AUTO", "true").lower() != "false"
         self.adsp_ua_min = int(os.getenv("ADSP_UA_MIN_VERSION", "138"))
         self.adsp_device = os.getenv("ADSP_DEVICE", "desktop")  # desktop/mobile
@@ -614,6 +617,10 @@ class PlaywrightExecutorAgent(BaseAgent):
                 logger.warning("未配置 ADSP_TOKEN，跳过 AdsPower")
                 return None
 
+            # 🎯 关键修复：在方法开始就预计算窗口边界，确保整个方法中都可访问
+            window_bounds = self._precompute_window_bounds(0)  # 默认使用第一个格子
+            screen_info = self._get_screen_size_sync()
+
             # 1) 取青果代理（若提供）
             qg_endpoint = os.getenv("QG_TUNNEL_ENDPOINT", "tun-szbhry.qg.net:17790").strip()
             qg_authkey = os.getenv("QG_AUTHKEY", "").strip()
@@ -651,7 +658,32 @@ class PlaywrightExecutorAgent(BaseAgent):
             }
             if self.adsp_verbose:
                 logger.info(f"[ADSP cfg] base_url={self.adsp_base_url} token={self._mask(self.adsp_token, 4)} prefer_v1={self.adsp_prefer_v1} verbose={self.adsp_verbose} rate_delay_ms={self.adsp_rate_delay_ms}")
+                
+                # 🚀 商用级预防性延迟：避免触发频率限制
+                initial_delay = 2.0  # 初始2秒延迟
+                logger.info(f"⏰ [AdsPower] 预防性延迟 {initial_delay}s - 避免频率限制")
+                await asyncio.sleep(initial_delay)
             async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as session:
+                # 🧹 清理超限账户（解决15个账户限制问题）
+                try:
+                    list_resp = await self._adspower_api_call(session, "GET", "/api/v1/user/list?page_size=100")
+                    if list_resp and list_resp.get("code") == 0 and list_resp.get("data"):
+                        users = list_resp["data"].get("list", [])
+                        if len(users) >= 14:  # 接近15个限制时开始清理
+                            logger.info(f"🧹 检测到{len(users)}个AdsPower账户，开始清理旧账户...")
+                            # 删除最旧的几个账户
+                            for user in users[:max(1, len(users) - 10)]:
+                                user_id = user.get("user_id")
+                                if user_id:
+                                    try:
+                                        await self._adspower_api_call(session, "DELETE", f"/api/v1/user/delete", {"user_ids": [user_id]})
+                                        logger.info(f"🗑️ 已删除旧账户: {user_id}")
+                                        await asyncio.sleep(0.5)  # 避免频率限制
+                                    except Exception as e:
+                                        logger.warning(f"删除账户失败: {e}")
+                except Exception as e:
+                    logger.warning(f"清理账户失败，继续执行: {e}")
+
                 # 0) 计算/获取 batchId 与对应的分组ID
                 batch_id = None
                 for k in self.batch_id_env_keys:
@@ -669,14 +701,24 @@ class PlaywrightExecutorAgent(BaseAgent):
                 # 2) 创建或更新 Profile（这里简化为创建）
                 # 设备与UA策略：强制桌面端，开启 ua_auto（最低版本控制通过 min_version）
                 desktop_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36"
-                # 预计算窗口边界，为 AdsPower 提供准确的屏幕尺寸
-                window_bounds = self._precompute_window_bounds(0)  # 默认使用第一个格子
-                screen_info = self._get_screen_size_sync()
+                # 使用预计算的窗口边界，为 AdsPower 提供准确的屏幕尺寸
+                
+                # 🎯 全新指纹方案：每次创建完全独立的指纹环境
+                # 生成随机但真实的硬件指纹
+                canvas_fingerprint = f"canvas_{random.randint(100000, 999999)}"
+                webgl_vendor = random.choice(["NVIDIA Corporation", "AMD", "Intel Inc."])
+                webgl_renderer = random.choice([
+                    "NVIDIA GeForce RTX 4090", "NVIDIA GeForce RTX 4080", "NVIDIA GeForce RTX 4070",
+                    "AMD Radeon RX 7900 XTX", "AMD Radeon RX 7800 XT", "Intel Arc A770"
+                ])
+                cpu_cores = random.choice([8, 12, 16, 20, 24])
+                memory_gb = random.choice([16, 32, 64])
                 
                 fp_cfg = {
+                    # 🔥 核心配置：最新Chrome内核 + 最强反检测
                     "device_type": "desktop",
                     "ua_auto": True,
-                    "ua_min_version": max(self.adsp_ua_min, 138),
+                    "ua_min_version": 130,  # 使用最新Chrome版本
                     "ua": desktop_ua,
                     "user_agent": desktop_ua,
                     "platform": "Win32",
@@ -685,16 +727,76 @@ class PlaywrightExecutorAgent(BaseAgent):
                     "system": "windows",
                     "is_mobile": False,
                     "mobile": False,
+                    
+                    # 🌍 地理位置（AdsPower标准格式）
                     "timezone": "Asia/Shanghai",
-                    # 使用实际屏幕分辨率而非硬编码
+                    "language": ["zh-CN", "zh", "en"],  # AdsPower期望的数组格式
+                    "languages": ["zh-CN", "zh", "en"],  # 保持一致
+                    
+                    # 🖥️ 屏幕配置
                     "screen_resolution": f"{screen_info['w']}_{screen_info['h']}",
                     "screen_width": screen_info['w'],
                     "screen_height": screen_info['h'],
-                    # 尝试设置期望的窗口尺寸（部分 AdsPower 版本可能支持）
                     "window_width": window_bounds['width'],
                     "window_height": window_bounds['height'],
                     "window_left": window_bounds['left'],
                     "window_top": window_bounds['top'],
+                    
+                    # 🔒 反检测核心配置
+                    "webdriver": False,  # 隐藏webdriver特征
+                    "automation": False,  # 隐藏自动化特征
+                    "headless": False,   # 强制有头模式
+                    
+                    # 🎨 Canvas/WebGL指纹
+                    "canvas_fingerprint": canvas_fingerprint,
+                    "webgl_vendor": webgl_vendor,
+                    "webgl_renderer": webgl_renderer,
+                    "canvas_noise": True,
+                    "webgl_noise": True,
+                    
+                    # 💻 硬件指纹
+                    "hardware_concurrency": cpu_cores,
+                    "device_memory": memory_gb,
+                    "max_touch_points": 0,  # 桌面设备
+                    
+                    # 🔊 音频指纹
+                    "audio_noise": True,
+                    "audio_context": True,
+                    
+                    # 📦 插件和权限
+                    "plugins_enabled": True,
+                    "permissions": {
+                        "geolocation": "default",
+                        "notifications": "default", 
+                        "camera": "default",
+                        "microphone": "default"
+                    },
+                    
+                    # 🚀 性能优化
+                    "dns_cache": True,
+                    "font_rendering": "natural",
+                    "startup_acceleration": True,
+                    
+                    # ⭐ 关键：每次都是全新Profile，彻底清除状态
+                    "fresh_profile": True,  # 标记为全新Profile
+                    
+                    # 🧹 确保全新状态（根本解决方案）
+                    "disable_browser_cache": True,        # 禁用浏览器缓存
+                    "disable_local_storage": True,        # 禁用localStorage
+                    "disable_session_storage": True,      # 禁用sessionStorage
+                    "disable_indexeddb": True,            # 禁用IndexedDB
+                    "disable_web_sql": True,              # 禁用WebSQL
+                    "disable_application_cache": True,    # 禁用应用缓存
+                    "disable_service_workers": True,      # 禁用Service Workers
+                    "disable_cookies": False,             # 允许cookies但每次都清新
+                    "clear_cookies_on_start": True,       # 启动时清除cookies
+                    "clear_history_on_start": True,       # 启动时清除历史记录
+                    "private_mode": True,                 # 隐私模式
+                    
+                    # 🔒 完全隔离的浏览会话
+                    "isolated_session": True,             # 完全隔离的会话
+                    "no_referrer": True,                  # 无引用者信息
+                    "first_party_isolation": True,        # 第一方隔离
                 }
                 # 用户自定义覆盖
                 if self.adsp_fp_raw:
@@ -731,8 +833,11 @@ class PlaywrightExecutorAgent(BaseAgent):
                             for proxy_key in cand["proxy_keys"]:
                                 for fp_key in cand["fp_keys"]:
                                     # 基础 payload
+                                    # 🔧 确保绝对唯一：每次都是完全新的profile，时间戳+UUID确保不会复用
+                                    timestamp = int(time.time() * 1000)  # 毫秒级时间戳
+                                    unique_id = uuid.uuid4().hex[:8]
                                     payload_base = {
-                                        name_key: f"ui-auto-{batch_id}-{uuid.uuid4().hex[:6]}"
+                                        name_key: f"fresh-{timestamp}-{unique_id}"
                                     }
                                     # v2常见要求 email 字段
                                     if cand['path'].startswith('/api/v2/user/create'):
@@ -742,228 +847,93 @@ class PlaywrightExecutorAgent(BaseAgent):
                                         for gk in cand["group_keys"]:
                                             payload_base[gk] = group_id
 
-                                    # 生成多种代理形态
-                                    proxy_variants = []
-                                    # 如果提供了 proxyid，则优先走 proxyid 直连（更稳）
-                                    if self.adsp_proxy_id is not None:
-                                        proxy_variants.append({ 'proxyid': self.adsp_proxy_id })
+                                    # 🎯 按照官方文档，构建标准请求配置（一次性）
                                     host = (proxy_conf or {}).get('proxy_host') if isinstance(proxy_conf, dict) else None
                                     port = (proxy_conf or {}).get('proxy_port') if isinstance(proxy_conf, dict) else None
                                     username = (proxy_conf or {}).get('proxy_username') if isinstance(proxy_conf, dict) else None
                                     password = (proxy_conf or {}).get('proxy_password') if isinstance(proxy_conf, dict) else None
-                                    address = (proxy_conf or {}).get('proxy_address') if isinstance(proxy_conf, dict) else None
-                                    proxy_url = None
-                                    if host and port:
-                                        proxy_url = f"http://{host}:{port}"
-                                        if username and password:
-                                            proxy_url = f"http://{username}:{password}@{host}:{port}"
-                                    elif address:
-                                        proxy_url = f"http://{address}"
-                                        if username and password:
-                                            proxy_url = f"http://{username}:{password}@{address}"
-
-                                    # 优先：v1 常见格式（user_proxy_config 包含 proxy_soft/proxy_type/proxy）
-                                    if proxy_key == 'user_proxy_config':
-                                        # 无 scheme
-                                        if host and port:
-                                            addr_no_scheme = f"{host}:{port}"
-                                            if username and password:
-                                                addr_no_scheme = f"{username}:{password}@{host}:{port}"
-                                            proxy_variants.append({
-                                                proxy_key: {
-                                                    "proxy_soft": "other",
-                                                    "proxy_type": "http",
-                                                    "proxy": addr_no_scheme
-                                                }
-                                            })
-                                        # 有 scheme
-                                        if proxy_url:
-                                            proxy_variants.append({
-                                                proxy_key: {
-                                                    "proxy_soft": "other",
-                                                    "proxy_type": "http",
-                                                    "proxy": proxy_url
-                                                }
-                                            })
-
-                                    # 次优先：对象结构（proxy_* 键）
-                                    if proxy_conf and proxy_key != 'proxy':
-                                        variant2 = {
-                                            proxy_key: {
-                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
-                                                "proxy_host": host,
-                                                "proxy_port": port,
-                                                "proxy_username": username,
-                                                "proxy_password": password,
-                                            }
+                                    
+                                    # 确保端口是整数
+                                    if port and isinstance(port, str):
+                                        try:
+                                            port = int(port)
+                                        except ValueError:
+                                            logger.error(f"🚨 [AdsPower] 端口格式错误: {port}")
+                                            raise RuntimeError("代理端口格式错误")
+                                    
+                                    # 🎯 标准AdsPower API格式（严格按照官方文档）
+                                    proxy_config = None
+                                    if proxy_key == 'user_proxy_config' and host and port and username and password:
+                                        proxy_config = {
+                                            "proxy_soft": "other",
+                                            "proxy_type": "http", 
+                                            "proxy_host": str(host),
+                                            "proxy_port": int(port),
+                                            "proxy_user": str(username),
+                                            "proxy_password": str(password)
                                         }
-                                        for rk in list(variant2[proxy_key].keys()):
-                                            if variant2[proxy_key][rk] is None:
-                                                del variant2[proxy_key][rk]
-                                        if variant2[proxy_key]:
-                                            proxy_variants.append(variant2)
+                                    elif self.adsp_proxy_id is not None:
+                                        # 使用预设代理ID
+                                        proxy_config = {'proxyid': self.adsp_proxy_id}
+                                        
+                                    if not proxy_config:
+                                        logger.error("🚨 [AdsPower] 代理配置不完整，无法创建Profile")
+                                        raise RuntimeError("代理配置不完整")
+                                    
+                                    logger.info(f"🎯 [AdsPower] 标准代理配置: {proxy_config}")
+                                    
+                                    # 标准指纹配置
+                                    fingerprint_config = fp_cfg if fp_cfg else {}
 
-                                        # 变体：使用 proxy_user 字段名（部分版本要求）
-                                        variant2b = {
-                                            proxy_key: {
-                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
-                                                "proxy_host": host,
-                                                "proxy_port": port,
-                                                "proxy_user": username,
-                                                "proxy_password": password,
-                                            }
-                                        }
-                                        for rk in list(variant2b[proxy_key].keys()):
-                                            if variant2b[proxy_key][rk] is None:
-                                                del variant2b[proxy_key][rk]
-                                        if variant2b[proxy_key]:
-                                            proxy_variants.append(variant2b)
-
-                                        # 变体：在对象结构上附加 proxy_soft='other'（本地一些版本要求）
-                                        variant2c = {
-                                            proxy_key: {
-                                                "proxy_soft": "other",
-                                                "proxy_type": (proxy_conf or {}).get('proxy_type', 'http'),
-                                                "proxy_host": host,
-                                                "proxy_port": port,
-                                                "proxy_user": username if username is not None else None,
-                                                "proxy_password": password if password is not None else None,
-                                            }
-                                        }
-                                        # 清理 None
-                                        for rk in list(variant2c[proxy_key].keys()):
-                                            if variant2c[proxy_key][rk] is None:
-                                                del variant2c[proxy_key][rk]
-                                        if variant2c[proxy_key]:
-                                            proxy_variants.append(variant2c)
-
-                                    # 备选：对象结构（通用键）
-                                    if proxy_conf and proxy_key != 'proxy':
-                                        variant1 = {
-                                            proxy_key: {
-                                                "type": (proxy_conf or {}).get('proxy_type', 'http'),
-                                                "host": host,
-                                                "port": port,
-                                                "username": username,
-                                                "password": password,
-                                            }
-                                        }
-                                        for rk in list(variant1[proxy_key].keys()):
-                                            if variant1[proxy_key][rk] is None:
-                                                del variant1[proxy_key][rk]
-                                        if variant1[proxy_key]:
-                                            proxy_variants.append(variant1)
-
-                                    # 备选：对象结构（内含 proxy 字符串）
-                                    if proxy_url and proxy_key != 'proxy':
-                                        proxy_variants.append({ proxy_key: { "proxy_type": "http", "proxy": proxy_url } })
-                                        # 无 scheme 形式（host:port）
-                                        no_scheme = None
-                                        if host and port:
-                                            no_scheme = f"{host}:{port}"
-                                            if username and password:
-                                                no_scheme = f"{username}:{password}@{host}:{port}"
-                                        if no_scheme:
-                                            proxy_variants.append({ proxy_key: { "proxy_type": "HTTP", "proxy": no_scheme } })
-
-                                    # 备选：字符串（当 key 为 proxy）
-                                    if proxy_key == 'proxy' and proxy_url:
-                                        proxy_variants.append({ proxy_key: proxy_url })
-
-                                    # 备选：v1 另一常见格式（user_proxy_config 使用 ip/port/user/password）
-                                    if proxy_key == 'user_proxy_config' and host and port:
-                                        proxy_variants.append({
-                                            proxy_key: {
-                                                "ip": host,
-                                                "port": port,
-                                                "user": username,
-                                                "password": password
-                                            }
-                                        })
-
-                                    # 指纹配置
-                                    fp_variants = []
-                                    if fp_cfg:
-                                        fp_variants.append({ fp_key: fp_cfg })
-                                    if not fp_variants:
-                                        fp_variants.append({})
-                                    if not proxy_variants:
-                                        proxy_variants.append({})
-
-                                    # 逐一尝试，并对429/限流退避
-                                    for pv in proxy_variants:
-                                        for fv in fp_variants:
-                                            attempts = 0
-                                            while attempts < 3:
-                                                payload = { **payload_base, **pv, **fv }
-                                                async with session.post(url, json=payload) as resp:
-                                                    text = await resp.text()
-                                                    if self.adsp_verbose:
-                                                        logger.info(f"[ADSP user.create] url={url} name_key={name_key} group_keys={cand['group_keys']} proxy_key={proxy_key} fp_key={fp_key} status={resp.status} resp={self._snippet(text)} payload_keys={list(payload.keys())}")
-                                                    # BEGIN: console prints for first/last lines
-                                                    try:
-                                                        _uc_line = f"[ADSP user.create] url={url} name_key={name_key} group_keys={cand['group_keys']} proxy_key={proxy_key} fp_key={fp_key} status={resp.status} resp={self._snippet(text)} payload_keys={list(payload.keys())}"
-                                                        if '___FIRST_UC_PRINTED' not in locals():
-                                                            print(_uc_line)
-                                                            ___FIRST_UC_PRINTED = True
-                                                        ___LAST_UC_LINE = _uc_line
-                                                    except Exception:
-                                                        pass
-                                                    # END: console prints for first/last lines
-                                                    if resp.status != 200 or not text:
-                                                        attempts += 1
-                                                        if resp.status == 429:
-                                                            await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
-                                                            continue
-                                                        break
-                                                    try:
-                                                        data = _json.loads(text)
-                                                    except Exception:
-                                                        break
-                                                    code = data.get("code")
-                                                    if code not in (0, 200):
-                                                        msg_raw = data.get("msg") or text or ""
-                                                        msg = msg_raw.lower()
-                                                        if ("user_group_id is required" in msg or "group_id is required" in msg) and not group_id:
-                                                            raise RuntimeError("创建 AdsPower profile 失败: 需要有效的分组ID")
-                                                        if "too many request per second" in msg:
-                                                            attempts += 1
-                                                            await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
-                                                            if self.adsp_verbose:
-                                                                logger.info(f"[ADSP user.create] rate-limit retry attempts={attempts} wait_ms={self.adsp_rate_delay_ms}")
-                                                            continue
-                                                        # 其它错误换下一个变体
-                                                        break
-                                                    self.adsp_profile_id = data.get("data", {}).get("user_id") or data.get("data", {}).get("id")
-                                                    if self.adsp_profile_id:
-                                                        if self.adsp_verbose:
-                                                            logger.info(f"[ADSP user.create] success profile_id={self.adsp_profile_id}")
-                                                        try:
-                                                            print(f"[ADSP user.create] success profile_id={self.adsp_profile_id}")
-                                                        except Exception:
-                                                            pass
-                                                        created = True
-                                                        break
-                                                if created:
-                                                    break
-                                            if created:
-                                                break
-                                        if created:
-                                            break
-                                if created:
-                                    break
-                            if created:
-                                break
-                    except Exception:
+                                    # 🎯 构建最终请求负载（一次性标准请求）
+                                    payload = {**payload_base}
+                                    if proxy_config:
+                                        payload[proxy_key] = proxy_config
+                                    if fingerprint_config:
+                                        payload[fp_key] = fingerprint_config
+                                    
+                                    logger.info(f"🚀 [AdsPower] 发送标准API请求: {list(payload.keys())}")
+                                    
+                                    # 🎯 单次标准API调用（严格按照官方文档）
+                                    async with session.post(url, json=payload) as resp:
+                                        text = await resp.text()
+                                        logger.info(f"[ADSP user.create] url={url} status={resp.status} resp={self._snippet(text)}")
+                                        
+                                        if resp.status != 200:
+                                            logger.error(f"🚨 [AdsPower] HTTP错误: {resp.status}")
+                                            raise RuntimeError(f"AdsPower API HTTP错误: {resp.status}")
+                                        
+                                        if not text:
+                                            logger.error("🚨 [AdsPower] 空响应")
+                                            raise RuntimeError("AdsPower API返回空响应")
+                                        
+                                        try:
+                                            import json
+                                            data = json.loads(text)
+                                        except Exception as e:
+                                            logger.error(f"🚨 [AdsPower] JSON解析失败: {e}")
+                                            raise RuntimeError(f"AdsPower API响应格式错误: {e}")
+                                        
+                                        code = data.get("code")
+                                        if code not in (0, 200):
+                                            msg = data.get("msg", "未知错误")
+                                            logger.error(f"🚨 [AdsPower] API错误: {msg}")
+                                            raise RuntimeError(f"AdsPower API错误: {msg}")
+                                        
+                                        self.adsp_profile_id = data.get("data", {}).get("user_id") or data.get("data", {}).get("id")
+                                        if not self.adsp_profile_id:
+                                            logger.error("🚨 [AdsPower] 未返回Profile ID")
+                                            raise RuntimeError("AdsPower API未返回有效的Profile ID")
+                                        
+                                        logger.info(f"✅ [AdsPower] Profile创建成功: {self.adsp_profile_id}")
+                                        created = True
+                                        break
+                    except Exception as e:
+                        logger.error(f"🚨 [AdsPower] 创建Profile失败: {e}")
                         continue
                 if not created or not self.adsp_profile_id:
-                    try:
-                        if '___LAST_UC_LINE' in locals() and ___LAST_UC_LINE:
-                            print(f"[ADSP user.create LAST] {___LAST_UC_LINE}")
-                            logger.warning(f"[ADSP user.create LAST] {___LAST_UC_LINE}")
-                    except Exception:
-                        pass
-                    raise RuntimeError("创建 AdsPower profile 失败: 无法在多版本接口中成功创建")
+                    logger.error("🚨 [AdsPower] 所有配置变体都已尝试，无法创建Profile")
+                    raise RuntimeError("创建 AdsPower profile 失败: 频率限制或配置错误")
                 # 3) 启动浏览器（仅 v1）
                 start_candidates = []
                 if self.adsp_browser_start_path:
@@ -982,7 +952,7 @@ class PlaywrightExecutorAgent(BaseAgent):
                             if resp.status != 200 or not text:
                                 continue
                             try:
-                                data = _json.loads(text)
+                                data = json.loads(text)
                             except Exception:
                                 continue
                             if data.get("code") not in (0, 200):
@@ -999,30 +969,121 @@ class PlaywrightExecutorAgent(BaseAgent):
                         continue
                 if not ws:
                     raise RuntimeError("未获得 wsEndpoint")
-                # 简单重试验证
-                for _ in range(3):
-                    if ws:
-                        # 优先使用原生 CDP WS 进行窗口定位，失败再回退 Playwright CDP
-                        applied = False
+                # 🎯 单次窗口边界设置（标准化）
+                if ws:
+                    # 优先使用原生 CDP WS 进行窗口定位，失败回退 Playwright CDP
+                    applied = False
+                    try:
+                        applied = await self._adspower_apply_bounds_via_cdp_ws(ws, window_bounds)
+                        logger.info("✅ CDP WS 窗口边界设置成功")
+                    except Exception as e:
+                        logger.info(f"CDP WS失败，回退Playwright: {e}")
                         try:
-                            applied = await self._adspower_apply_bounds_via_cdp_ws(ws, window_bounds)
+                            await self._adspower_apply_precomputed_bounds(ws, window_bounds)
+                            applied = True
+                            logger.info("✅ Playwright CDP 窗口边界设置成功")
                         except Exception as e:
-                            logger.warning(f"CDP WS 应用窗口边界异常: {e}")
-                        if not applied:
-                            try:
-                                await self._adspower_apply_precomputed_bounds(ws, window_bounds)
-                                applied = True
-                            except Exception as e:
-                                logger.warning(f"应用预计算窗口边界失败: {e}")
-                        if applied:
-                            logger.info("✅ 预计算窗口边界已应用")
+                            logger.warning(f"窗口边界设置失败: {e}")
+                    
+                    if applied:
+                        logger.info("✅ 预计算窗口边界已应用")
+                        
+                        # 🎯 确保真正的全新浏览器环境
+                        try:
+                            import websockets
+                            import json
+                            
+                            # 获取第一个页面的WebSocket
+                            resp = await self._adspower_api_call('get', f"{self.adsp_base_url}/api/v1/browser/active", {"user_id": self.adsp_profile_id})
+                            if resp.status == 200:
+                                data = await resp.json()
+                                if data.get("code") == 0:
+                                    tabs = data.get("data", {}).get("tabs", [])
+                                    if tabs:
+                                        page_ws = tabs[0].get("webSocketDebuggerUrl")
+                                        if page_ws:
+                                            async with websockets.connect(page_ws) as page_websocket:
+                                                # 确保桌面端User-Agent
+                                                await page_websocket.send(json.dumps({
+                                                    "id": 1,
+                                                    "method": "Network.setUserAgentOverride",
+                                                    "params": {
+                                                        "userAgent": desktop_ua,
+                                                        "platform": "Win32"
+                                                    }
+                                                }))
+                                                await page_websocket.recv()
+                                                
+                                                # 确保桌面端设备指标
+                                                await page_websocket.send(json.dumps({
+                                                    "id": 2,
+                                                    "method": "Emulation.setDeviceMetricsOverride",
+                                                    "params": {
+                                                        "width": window_bounds['width'],
+                                                        "height": window_bounds['height'],
+                                                        "deviceScaleFactor": 1,
+                                                        "mobile": False,
+                                                        "fitWindow": False
+                                                    }
+                                                }))
+                                                await page_websocket.recv()
+                                                
+                                                # 🧹 彻底清除浏览器状态（根本解决方案）
+                                                # 清除所有存储
+                                                await page_websocket.send(json.dumps({
+                                                    "id": 3,
+                                                    "method": "Storage.clearDataForOrigin",
+                                                    "params": {
+                                                        "origin": "*",
+                                                        "storageTypes": "all"
+                                                    }
+                                                }))
+                                                await page_websocket.recv()
+                                                
+                                                # 禁用缓存
+                                                await page_websocket.send(json.dumps({
+                                                    "id": 4,
+                                                    "method": "Network.setCacheDisabled", 
+                                                    "params": {"cacheDisabled": True}
+                                                }))
+                                                await page_websocket.recv()
+                                                
+                                                # 清除网络状态
+                                                await page_websocket.send(json.dumps({
+                                                    "id": 5,
+                                                    "method": "Network.clearBrowserCache"
+                                                }))
+                                                await page_websocket.recv()
+                                                
+                                                logger.info("🧹 已彻底清除浏览器状态，确保全新环境")
+                        except Exception as e:
+                            logger.warning(f"浏览器状态清除失败: {e}")
+                        
                         return ws
-                    await asyncio.sleep(1)
             return ws
         except Exception as e:
             logger.error(f"_prepare_adspower_with_proxy 失败: {e}")
             if self.force_adspower_only:
                 raise
+            return None
+
+    async def _adspower_api_call(self, session: aiohttp.ClientSession, method: str, path: str, data: dict = None) -> Optional[dict]:
+        """AdsPower API 统一调用方法"""
+        try:
+            url = f"{self.adsp_base_url}{path}"
+            if "?" not in path:
+                url += f"?token={self.adsp_token}"
+            else:
+                url += f"&token={self.adsp_token}"
+            
+            if method.upper() == "GET":
+                async with session.get(url) as resp:
+                    return await resp.json()
+            elif method.upper() in ["POST", "DELETE"]:
+                async with session.post(url, json=data) as resp:
+                    return await resp.json()
+        except Exception as e:
+            logger.warning(f"AdsPower API调用失败: {method} {path} - {e}")
             return None
 
     async def _get_screen_size(self) -> Dict[str, int]:
@@ -1189,13 +1250,12 @@ class PlaywrightExecutorAgent(BaseAgent):
                             pass
                         return 0
 
-                    window_id: int = 0
-                    # 等待最多 ~1s 直到 windowId 可用
-                    for _ in range(10):
-                        window_id = await _resolve_window_id()
-                        if window_id:
-                            break
+                    # 🎯 单次获取window ID（无需重试循环）
+                    window_id = await _resolve_window_id()
+                    if not window_id:
+                        # 等待一次后再试
                         await asyncio.sleep(0.1)
+                        window_id = await _resolve_window_id()
                     if window_id:
                         # 先最小化→再设定位置尺寸→normal，尽量避免默认大窗可见
                         try:
@@ -1228,23 +1288,51 @@ class PlaywrightExecutorAgent(BaseAgent):
                             logger.info(f"[ADSP window] bounds set -> left={bb.get('left')} top={bb.get('top')} w={bb.get('width')} h={bb.get('height')} state={bb.get('windowState')}")
                         except Exception:
                             pass
-                        # 等待窗口稳定后同步 viewport（在 Node 导航前完成）
-                        await page.wait_for_timeout(250)
+                        # 🎯 精确同步viewport到窗口内部实际尺寸（关键修复）
+                        await page.wait_for_timeout(500)  # 增加等待时间确保窗口稳定
+                        
+                        # 多次尝试获取精确的内部尺寸
+                        inner_w, inner_h = bounds['width'], bounds['height']
+                        for attempt in range(3):
+                            try:
+                                inner = await page.evaluate("""() => ({
+                                    w: window.innerWidth,
+                                    h: window.innerHeight,
+                                    outer_w: window.outerWidth,
+                                    outer_h: window.outerHeight,
+                                    screen_w: screen.width,
+                                    screen_h: screen.height
+                                })""")
+                                
+                                if inner and inner.get('w', 0) > 0 and inner.get('h', 0) > 0:
+                                    inner_w = max(1, int(inner.get('w')))
+                                    inner_h = max(1, int(inner.get('h')))
+                                    logger.info(f"🖥️ [Viewport-{attempt+1}] 获取内部尺寸: {inner_w}x{inner_h}")
+                                    logger.info(f"🖥️ [Viewport-{attempt+1}] 外部尺寸: {inner.get('outer_w')}x{inner.get('outer_h')}")
+                                    break
+                                else:
+                                    await page.wait_for_timeout(200)
+                            except Exception as e:
+                                logger.warning(f"⚠️ [Viewport-{attempt+1}] 获取窗口尺寸失败: {e}")
+                                await page.wait_for_timeout(200)
+                        
+                        # 强制设置viewport匹配实际窗口
                         try:
-                            inner = await page.evaluate("()=>({w: window.innerWidth, h: window.innerHeight})")
-                            w = max(1, int(inner.get('w') if isinstance(inner, dict) else inner['w']))
-                            h = max(1, int(inner.get('h') if isinstance(inner, dict) else inner['h']))
-                        except Exception:
-                            w = bounds['width']; h = bounds['height']
-                        try:
-                            await page.set_viewport_size({'width': w, 'height': h})
-                        except Exception:
-                            pass
+                            await page.set_viewport_size({'width': inner_w, 'height': inner_h})
+                            logger.info(f"✅ [Viewport] 页面视口已设置为: {inner_w}x{inner_h}")
+                            
+                            # 验证viewport是否正确设置
+                            await page.wait_for_timeout(200)
+                            actual_viewport = await page.evaluate("() => ({w: window.innerWidth, h: window.innerHeight})")
+                            if actual_viewport:
+                                logger.info(f"✅ [Viewport] 验证实际视口: {actual_viewport.get('w')}x{actual_viewport.get('h')}")
+                        except Exception as e:
+                            logger.error(f"❌ [Viewport] 设置失败: {e}")
                         try:
                             cdp_page2 = await context.new_cdp_session(page)
                             await cdp_page2.send('Emulation.setDeviceMetricsOverride', {
-                                'width': w,
-                                'height': h,
+                                'width': inner_w,
+                                'height': inner_h,
                                 'deviceScaleFactor': 1,
                                 'mobile': False
                             })
@@ -1280,66 +1368,27 @@ class PlaywrightExecutorAgent(BaseAgent):
                 except Exception:
                     pass
                 await asyncio.sleep(0.2)
-                # 3) delete（按需）
+                # 3) delete（按需）- 单次标准请求
                 if self.adsp_delete_on_exit:
-                    # GET ids → 429退避重试 → POST user_ids → POST ids
-                    # GET ids
                     try:
-                        for _ in range(3):
-                            async with session.get(f"{self.adsp_base_url}/api/v1/user/delete?ids={self.adsp_profile_id}&{self.adsp_token_param}={self.adsp_token}") as resp:
-                                txt = await resp.text()
-                                try:
-                                    data = _json.loads(txt)
-                                except Exception:
-                                    data = {}
+                        # 🎯 标准AdsPower删除API调用（一次性）
+                        delete_url = f"{self.adsp_base_url}/api/v1/user/delete?{self.adsp_token_param}={self.adsp_token}"
+                        delete_payload = {"user_ids": [self.adsp_profile_id]}
+                        
+                        async with session.post(delete_url, json=delete_payload) as resp:
+                            txt = await resp.text()
+                            try:
+                                data = json.loads(txt)
                                 code = data.get("code")
-                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
                                 if code in (0, 200):
-                                    break
-                                if any(x in msg for x in ["Too many", "request per second", "429"]):
-                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
-                                    continue
-                                break
-                    except Exception:
-                        pass
-                    # POST user_ids
-                    try:
-                        for _ in range(3):
-                            async with session.post(f"{self.adsp_base_url}/api/v1/user/delete?{self.adsp_token_param}={self.adsp_token}", json={"user_ids": [self.adsp_profile_id]}) as resp:
-                                txt = await resp.text()
-                                try:
-                                    data = _json.loads(txt)
-                                except Exception:
-                                    data = {}
-                                code = data.get("code")
-                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
-                                if code in (0, 200):
-                                    break
-                                if any(x in msg for x in ["Too many", "request per second", "429"]):
-                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
-                                    continue
-                                break
-                    except Exception:
-                        pass
-                    # POST ids
-                    try:
-                        for _ in range(3):
-                            async with session.post(f"{self.adsp_base_url}/api/v1/user/delete?{self.adsp_token_param}={self.adsp_token}", json={"ids": [self.adsp_profile_id]}) as resp:
-                                txt = await resp.text()
-                                try:
-                                    data = _json.loads(txt)
-                                except Exception:
-                                    data = {}
-                                code = data.get("code")
-                                msg = (data.get("msg") or "") if isinstance(data.get("msg"), str) else ""
-                                if code in (0, 200):
-                                    break
-                                if any(x in msg for x in ["Too many", "request per second", "429"]):
-                                    await asyncio.sleep(self.adsp_rate_delay_ms / 1000.0)
-                                    continue
-                                break
-                    except Exception:
-                        pass
+                                    logger.info(f"✅ [AdsPower] Profile删除成功: {self.adsp_profile_id}")
+                                else:
+                                    msg = data.get("msg", "未知错误")
+                                    logger.warning(f"⚠️ [AdsPower] 删除失败: {msg}")
+                            except Exception as e:
+                                logger.warning(f"⚠️ [AdsPower] 删除响应解析失败: {e}")
+                    except Exception as e:
+                        logger.warning(f"⚠️ [AdsPower] Profile删除异常: {e}")
         except Exception as e:
             logger.warning(f"AdsPower 资源清理失败: {e}")
         finally:
@@ -1363,7 +1412,7 @@ class PlaywrightExecutorAgent(BaseAgent):
         try:
             cache = {}
             if self.group_cache_file.exists():
-                cache = _json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
+                cache = json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
             if batch_id in cache:
                 return cache[batch_id]
         except Exception:
@@ -1386,7 +1435,7 @@ class PlaywrightExecutorAgent(BaseAgent):
                     if resp.status != 200 or not text:
                         continue
                     try:
-                        data = _json.loads(text)
+                        data = json.loads(text)
                     except Exception:
                         continue
                     if data.get('code') not in (0, 200):
@@ -1421,7 +1470,7 @@ class PlaywrightExecutorAgent(BaseAgent):
                         if resp.status != 200 or not text:
                             continue
                         try:
-                            data = _json.loads(text)
+                            data = json.loads(text)
                         except Exception:
                             continue
                         if data.get('code') not in (0, 200):
@@ -1442,7 +1491,7 @@ class PlaywrightExecutorAgent(BaseAgent):
                         if resp.status != 200 or not text:
                             continue
                         try:
-                            data = _json.loads(text)
+                            data = json.loads(text)
                         except Exception:
                             continue
                         if data.get('code') not in (0, 200):
@@ -1462,9 +1511,9 @@ class PlaywrightExecutorAgent(BaseAgent):
         try:
             cache = {}
             if self.group_cache_file.exists():
-                cache = _json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
+                cache = json.loads(self.group_cache_file.read_text(encoding='utf-8') or '{}')
             cache[batch_id] = group_id
-            self.group_cache_file.write_text(_json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
+            self.group_cache_file.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding='utf-8')
         except Exception as e:
             logger.warning(f"写入分组缓存失败: {e}")
 
@@ -1586,7 +1635,8 @@ test("AI自动化测试", async ({{
             # 设置环境变量
             env = os.environ.copy()
 
-            # —— AdsPower + 青果代理：获取 wsEndpoint 并透传 ——
+            # —— 临时禁用AdsPower，使用本地Chromium测试基础功能 ——
+            # AdsPower + 青果代理：获取 wsEndpoint 并透传
             try:
                 ws_endpoint = await self._prepare_adspower_with_proxy()
                 if not ws_endpoint and self.force_adspower_only:
@@ -1602,8 +1652,51 @@ test("AI自动化测试", async ({{
                 if self.force_adspower_only:
                     raise
             
-            # 确保关键的AI API密钥被传递到子进程（优先环境变量，其次settings.* 配置）
+            # 🧠 智能AI模型选择：利用项目的8个顶级AI模型优势
             from app.core.config import settings as app_settings
+            from app.tests.test_ai_models import AIModelTester
+            
+            # 商用级智能选择：自动选择最优AI模型
+            logger.info("🧠 启动商用级AI模型智能选择...")
+            model_tester = AIModelTester()
+            
+            try:
+                # 快速检测可用模型（简化版，避免影响性能）
+                available_models = []
+                for model_id, config in model_tester.models_config.items():
+                    if config["api_key"] and not config["api_key"].startswith('your-'):
+                        available_models.append((model_id, config))
+                
+                # 按优先级排序，选择最佳模型
+                if available_models:
+                    available_models.sort(key=lambda x: x[1]["priority"])
+                    best_model_id, best_config = available_models[0]
+                    
+                    logger.info(f"🎯 选择最优AI模型: {best_config['name']}")
+                    logger.info(f"📊 优先级: {best_config['priority']}, 性价比: {best_config['cost_rating']}")
+                    logger.info(f"🎯 专长: {best_config['use_case']}")
+                    
+                    # 根据最优模型设置Midscene环境变量
+                    if model_id in ["qwen_vl", "qwen"]:
+                        selected_provider = "qwen"
+                    elif model_id in ["glm_4v"]:
+                        selected_provider = "glm"
+                    elif model_id in ["deepseek_vl", "deepseek_chat"]:
+                        selected_provider = "deepseek"
+                    elif model_id == "ui_tars":
+                        selected_provider = "ui_tars"
+                    elif model_id == "openai_gpt4o":
+                        selected_provider = "openai"
+                    else:
+                        selected_provider = "qwen"  # 默认最优
+                        
+                else:
+                    logger.warning("⚠️ 未找到可用AI模型，使用默认配置")
+                    selected_provider = "qwen"
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ AI模型选择失败，使用默认: {e}")
+                selected_provider = "qwen"
 
             def _get_from_settings(k: str) -> str:
                 mapping = {
@@ -1702,6 +1795,55 @@ test("AI自动化测试", async ({{
             selected_provider = await self._probe_and_select_provider(env)
             if selected_provider:
                 logger.info(f"✅ 预检通过，可用Provider: {selected_provider}")
+                try:
+                    # 使用Midscene标准环境变量，不再使用MIDSCENE_FORCE_*
+                    def set_standard_env(backend_name: str, base_url: str, model: str, key_envs: List[str], use_flag: str = None):
+                        api_key = None
+                        for k in key_envs:
+                            if env.get(k):
+                                api_key = env.get(k)
+                                break
+                        
+                        if api_key:
+                            # 使用Midscene标准环境变量
+                            env['OPENAI_API_KEY'] = api_key
+                            env['OPENAI_BASE_URL'] = base_url  
+                            env['MIDSCENE_MODEL_NAME'] = model
+                            env['MIDSCENE_DEBUG_MODE'] = 'true'  # 启用调试模式
+                            
+                            # 设置特定模型的使用标志
+                            if use_flag:
+                                env[use_flag] = 'true'
+                                
+                            # 清空所有冲突的视觉模型设置
+                            vision_flags = ['MIDSCENE_USE_VLM_UI_TARS', 'MIDSCENE_USE_GEMINI_VL', 'MIDSCENE_USE_CLAUDE_VL']
+                            for flag in vision_flags:
+                                if flag != use_flag:
+                                    env[flag] = ''
+                                
+                            logger.info(f"🔧 设置标准AI环境变量: {backend_name}")
+                            logger.info(f"   OPENAI_API_KEY = {api_key[:10] if api_key else 'None'}...")
+                            logger.info(f"   OPENAI_BASE_URL = {base_url}")
+                            logger.info(f"   MIDSCENE_MODEL_NAME = {model}")
+                            if use_flag:
+                                logger.info(f"   {use_flag} = true")
+
+                    if selected_provider == 'qwen':
+                        # 只启用QWEN_VL，明确禁用其他视觉模型
+                        set_standard_env('qwen', settings.QWEN_VL_BASE_URL, settings.QWEN_VL_MODEL, ['QWEN_VL_API_KEY', 'QWEN_API_KEY'], 'MIDSCENE_USE_QWEN_VL')
+                        # 启用中文UI理解
+                        env['MIDSCENE_PREFERRED_LANGUAGE'] = 'zh-CN'
+                    elif selected_provider == 'glm':
+                        set_standard_env('glm', settings.GLM_BASE_URL, settings.GLM_MODEL, ['GLM_API_KEY'])
+                    elif selected_provider == 'deepseek':
+                        set_standard_env('deepseek', settings.DEEPSEEK_BASE_URL, 'deepseek-chat', ['DEEPSEEK_API_KEY'])
+                    elif selected_provider == 'uitars':
+                        set_standard_env('uitars', settings.UI_TARS_BASE_URL, settings.UI_TARS_MODEL, ['UI_TARS_API_KEY'], 'MIDSCENE_USE_VLM_UI_TARS')
+                    elif selected_provider == 'openai':
+                        set_standard_env('openai', settings.OPENAI_BASE_URL, settings.OPENAI_MODEL, ['OPENAI_API_KEY'])
+                    logger.info("🔧 已注入标准环境变量，Midscene将自动识别并使用")
+                except Exception as _e:
+                    logger.warning(f"注入 MIDSCENE_FORCE_* 失败（忽略）: {_e}")
 
             # 详细的环境变量调试日志
             logger.info("🔍 Playwright执行环境调试 - 环境变量检查:")

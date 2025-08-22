@@ -1,125 +1,31 @@
+// Midscene.js 配置文件 - 标准模式
+// 完全依赖Midscene内置的环境变量机制，不再使用自定义配置
+
 declare const process: any;
 
-function isValidKey(provider: string, key?: string): boolean {
-  if (!key || !key.trim()) return false;
-  const k = key.trim();
-  switch (provider) {
-    case 'qwen':
-      return !k.includes('你的') && !k.includes('your-') && k.startsWith('sk-') && k.length > 30;
-    case 'glm':
-      return !k.includes('你的') && !k.includes('your-') && k.includes('.') && k.length > 40;
-    case 'deepseek':
-      // DeepSeek 的密钥前缀通常为 sk-，但不同账户形态可能不同；排除占位符
-      return !k.includes('你的') && !k.includes('your-') && k.length > 20;
-    case 'openai':
-      // Project Key（sk-proj-）常被判定格式不符，这里仅接受经典 sk-
-      return !k.includes('你的') && !k.includes('your-') && k.startsWith('sk-') && !k.startsWith('sk-proj-') && k.length > 30;
-    case 'uitars':
-      // 豆包 UI-TARS 使用 UUID 样式密钥 8-4-4-4-12
-      return !k.includes('你的') && !k.includes('your-') && /^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$/.test(k);
-    default:
-      return false;
-  }
+console.log('🔍 Midscene标准配置调试:');
+console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? process.env.OPENAI_API_KEY.substring(0, 10) + '...' : '❌ 未设置');
+console.log('  OPENAI_BASE_URL:', process.env.OPENAI_BASE_URL || '❌ 未设置');
+console.log('  MIDSCENE_MODEL_NAME:', process.env.MIDSCENE_MODEL_NAME || '❌ 未设置');
+console.log('  MIDSCENE_USE_QWEN_VL:', process.env.MIDSCENE_USE_QWEN_VL || '未设置');
+console.log('  MIDSCENE_USE_VLM_UI_TARS:', process.env.MIDSCENE_USE_VLM_UI_TARS || '未设置');
+console.log('  MIDSCENE_DEBUG_MODE:', process.env.MIDSCENE_DEBUG_MODE || '未设置');
+
+// 如果检测到有效的标准环境变量，输出确认信息
+if (process.env.OPENAI_API_KEY && process.env.OPENAI_BASE_URL) {
+  console.log('✅ 检测到标准OpenAI兼容配置');
+  console.log('   Provider将由Midscene内部自动选择');
+} else {
+  console.log('⚠️ 标准环境变量不完整，Midscene可能无法正常工作');
 }
 
-const config = {
-  /**
-   * AI 模型服务配置
-   * 优先使用高效的云端视觉AI服务
-   */
-  aiModel: (() => {
-    // 详细的环境变量调试日志
-    console.log('🔍 Midscene配置调试 - 环境变量检查:');
-    console.log('  QWEN_VL_API_KEY:', process.env.QWEN_VL_API_KEY ? `存在(${process.env.QWEN_VL_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
-    console.log('  QWEN_API_KEY:', process.env.QWEN_API_KEY ? `存在(${process.env.QWEN_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
-    console.log('  GLM_API_KEY:', process.env.GLM_API_KEY ? `存在(${process.env.GLM_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
-    console.log('  DEEPSEEK_API_KEY:', process.env.DEEPSEEK_API_KEY ? `存在(${process.env.DEEPSEEK_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
-    console.log('  OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? `存在(${process.env.OPENAI_API_KEY.substring(0, 10)}...)` : '❌ 未设置');
-    
-    // Mock 开关：用于无真实密钥时的可视化演示
-    if (process.env.AI_MOCK_MODE === 'true') {
-      console.log('🧪 Mock模式已启用，使用模拟AI服务配置');
-      return {
-        provider: 'mock',
-        apiKey: process.env.MOCK_API_KEY || 'mock-api-key-for-testing',
-        baseURL: process.env.MIDSCENE_MOCK_BASE_URL || 'http://localhost:8000/api/v1/mock/ai',
-        model: 'mock-ui-model'
-      };
-    }
-    
-    // 移除外部环境对 Provider 的强制指定，统一由代码内部自动选择
+// Midscene会从以下标准环境变量自动读取配置：
+// - OPENAI_API_KEY: API密钥
+// - OPENAI_BASE_URL: API端点
+// - MIDSCENE_MODEL_NAME: 模型名称
+// - MIDSCENE_USE_QWEN_VL: 启用Qwen-VL
+// - MIDSCENE_USE_VLM_UI_TARS: 启用UI-TARS
+// - MIDSCENE_DEBUG_MODE: 调试模式
 
-    // 优先级顺序选择API密钥（只使用环境变量，不再使用任何硬编码密钥）
-    const apiOptions = [
-      { key: process.env.QWEN_VL_API_KEY, provider: 'openai-compatible', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-plus', name: 'QWen-VL (最佳)', validator: () => isValidKey('qwen', process.env.QWEN_VL_API_KEY) },
-      { key: process.env.QWEN_API_KEY, provider: 'openai-compatible', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-plus', name: 'QWen', validator: () => isValidKey('qwen', process.env.QWEN_API_KEY) },
-      { key: process.env.GLM_API_KEY, provider: 'openai-compatible', baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4v', name: 'GLM-4V', validator: () => isValidKey('glm', process.env.GLM_API_KEY) },
-      { key: process.env.DEEPSEEK_API_KEY, provider: 'openai-compatible', baseURL: 'https://api.deepseek.com/v1', model: 'deepseek-chat', name: 'DeepSeek', validator: () => isValidKey('deepseek', process.env.DEEPSEEK_API_KEY) },
-      { key: process.env.UI_TARS_API_KEY, provider: 'openai-compatible', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-1-5-ui-tars-250428', name: 'UI-TARS', validator: () => isValidKey('uitars', process.env.UI_TARS_API_KEY) },
-      // 放宽 OpenAI Project Key（sk-proj-）格式限制，避免被误判为无效
-      { key: process.env.OPENAI_API_KEY, provider: 'openai', baseURL: 'https://api.openai.com/v1', model: 'gpt-4o', name: 'OpenAI', validator: () => !!(process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.trim()) },
-    ];
-    
-    // 找到第一个有效的API密钥
-    for (const option of apiOptions) {
-      // 仅当通过各自的有效性校验时才选择
-      // OPENAI 会过滤掉非 sk-/sk-proj- 开头的无效 key（例如 UUID）
-      const valid = (option as any).validator ? (option as any).validator() : false;
-      if (valid) {
-        console.log('🎯 Midscene选择的API配置:', {
-          provider: option.provider,
-          model: option.model,
-          baseURL: option.baseURL,
-          apiKey: option.key.substring(0, 10) + '...'
-        });
-        
-        // 返回完整的配置
-        return {
-          provider: option.provider,
-          baseURL: option.baseURL,
-          model: option.model,
-          apiKey: option.key,
-        };
-      }
-    }
-    
-    // 没有找到有效密钥时，自动回落到 Mock，保障流程打通
-    console.warn('⚠️ 未找到任何有效的API密钥，自动回落到 Mock 配置');
-    return {
-      provider: 'mock',
-      apiKey: process.env.MOCK_API_KEY || 'mock-api-key-for-testing',
-      baseURL: process.env.MIDSCENE_MOCK_BASE_URL || 'http://localhost:8000/api/v1/mock/ai',
-      model: 'mock-ui-model'
-    };
-  })(),
-
-  /**
-   * 执行配置
-   */
-  execution: {
-    // 启用可视模式（显示浏览器窗口）
-    headless: false,
-    
-    // 执行超时时间
-    timeout: 30000,
-    
-    // 详细日志输出
-    verbose: true,
-    
-    // 保存执行截图
-    saveScreenshots: true,
-  },
-
-  /**
-   * 报告配置
-   */
-  reporting: {
-    // 自动打开报告
-    openReport: true,
-    
-    // 报告输出目录
-    outputDir: './midscene_run/report',
-  },
-};
-
-export default config as any;
+// 不再手动配置，让Midscene使用标准机制
+export default {};
